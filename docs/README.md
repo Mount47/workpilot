@@ -1,60 +1,79 @@
-# 项目总览
+# WorkPilot 文档中心
 
-WorkPilot 是一个面向项目知识工作的"有边界但自主" Agent。它接收明确任务和受限 workspace，产出可验证的交付物：带引用的周报、结构化风险、结构化行动项、验证报告和执行追踪。
+> **真值优先级**：代码+测试 > git log > 文档。
+> 本文档体系是导航和决策记录，不是权威来源。当文档与代码冲突时，以代码为准。
 
-核心原则：
+## 系统概览
 
-> 自由的是路径，受控的是边界。
+WorkPilot 是一个证据门控的项目知识工作 Agent。给定一组项目资料（会议纪要、issue、PR 摘要等），它自动生成带引用的周报、结构化风险清单和行动项。
 
-Agent 可以自主决定如何检查文件、规划步骤、检索证据、组织输出；但不能越过 workspace、不能编造证据、不能硬填未知负责人或日期、不能生成无来源结论，也不能无限循环消耗预算。
+与普通 LLM 总结器的区别：**每条结论必须追溯到源文件的具体行**。缺少证据时输出 unknown，不编造。
 
-## 主架构
+核心执行流程：
 
-```text
-Mission Contract
-  -> Plan
-  -> Retrieve
-  -> Synthesize with Citations
-  -> Verify
-  -> Artifact + Task Drafts
-  -> Trace
+```
+Mission Contract → Plan → Retrieve → Extract Evidence → Synthesize → Verify → Artifacts
 ```
 
-## 文档结构
+关键约束：
+- 文件访问沙箱化，不可越过 workspace 边界
+- 控制流由状态机驱动，LLM 只在被调用时参与
+- 确定性 Verifier 检查引用有效性，拒绝无来源结论
+- 预算（步数/token/时间）耗尽时强制停止
 
-### 产品设计（Product Design）
+## 文档分层
+
+| 层级 | 文件 | 更新频率 | 说明 |
+|------|------|----------|------|
+| 动态层 | [STATUS.md](./STATUS.md) | 每次有意义的变更 | 一屏：进度、最近变更、已知阻塞 |
+| 决策层 | [DECISIONS.md](./DECISIONS.md) | 每次架构取舍 | 追加式 ADR：决策/为什么/否决了什么 |
+| 稳定层 | design/ | 大方向调整时 | 架构、数据模型、产品范围 |
+
+## 稳定层文档
 
 | 文档 | 说明 |
-|---|---|
-| [定位与目标](./design/product_scope.md) | 项目定位、目标、非目标和 MVP 边界 |
+|------|------|
+| [产品范围](./design/product_scope.md) | 定位、目标、非目标、MVP 边界 |
 | [核心架构](./design/architecture.md) | 系统组件、运行时边界、组件交互 |
 | [数据模型](./design/data_model.md) | 实体定义、字段规范、校验规则 |
 
-### 接口设计（Interface Design）
+## 开发规范
 
 | 文档 | 说明 |
-|---|---|
-| [接口规划](./interface/planning.md) | CLI 和 API 设计（规划接口） |
-| [接口实现](./interface/implementation.md) | CLI 和 API 实现进度（实际交付） |
-
-### 开发规范（Development）
-
-| 文档 | 说明 |
-|---|---|
-| [Agent Runtime](./dev/agent_runtime.md) | 受控工作流、步骤生命周期、状态机 |
+|------|------|
+| [Agent Runtime](./dev/agent_runtime.md) | 受控工作流、状态机、步骤生命周期 |
 | [Verifier 规则](./dev/verifier_rules.md) | 引用、支撑、结构、trace 检查规则 |
-| [Provider 架构](./dev/provider_architecture.md) | 多模型 API 支持架构（GPT/Claude/GLM/DeepSeek/Qwen/百炼） |
-| [开发方案](./dev/implementation_plan.md) | 五阶段实现方案（阶段0-5） |
+| [Provider 架构](./dev/provider_architecture.md) | 多模型 API 支持（GPT/Claude/GLM/DeepSeek/Qwen） |
+| [开发方案](./dev/implementation_plan.md) | 五阶段递进实现计划 |
 
-### 归档（Archive）
+## 接口设计
 
-历史文档已迁移到 [archive/readme.md](./archive/readme.md) 查看清单。
+| 文档 | 说明 |
+|------|------|
+| [接口规划](./interface/planning.md) | CLI 和 API 设计规划 |
+| [接口实现](./interface/implementation.md) | 实际交付进度 |
 
----
+## 快速体验
 
-## 核心设计哲学
+```bash
+# 安装
+git clone <repo-url> && cd WorkPilot
+pip install -e ".[dev]"
 
-1. **Evidence Gate**：每条结论必须可追溯到 Evidence Store 中的 evidence
-2. **Verifier 是护城河**：确定性检查优先于 LLM 自评
-3. **受控 Runtime**：状态机驱动，LLM 只在被调用时参与，永不掌控控制流
-4. **Fail Closed**：证据缺失时拒绝输出，宁可不完整也不编造
+# 运行 stub 演示（无需 API key）
+workpilot run \
+  --workspace ./tests/fixtures/workspaces/basic_project \
+  --goal "生成本周项目周报" \
+  --provider stub \
+  --output ./runs/demo
+
+# 查看执行追踪
+workpilot trace --run ./runs/demo
+
+# 运行测试
+pytest
+```
+
+## 归档
+
+历史文档见 [archive/readme.md](./archive/readme.md)。
