@@ -1,10 +1,22 @@
 """LLM Provider abstract base."""
 
 from abc import ABC, abstractmethod
-from pathlib import Path
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
+
+
+class EvidenceType(str, Enum):
+    """Types of evidence a snippet can represent."""
+
+    PROGRESS = "progress"
+    DECISION = "decision"
+    RISK = "risk"
+    BLOCKER = "blocker"
+    ACTION_ITEM = "action_item"
+    CONTEXT = "context"
+    REQUIREMENT_CHANGE = "requirement_change"
 
 
 class EvidenceCandidate(BaseModel):
@@ -15,7 +27,7 @@ class EvidenceCandidate(BaseModel):
     quote: str
     start_line: int
     end_line: int
-    evidence_type: str = "context"
+    evidence_type: str = EvidenceType.CONTEXT
 
 
 class LLMProvider(ABC):
@@ -43,10 +55,11 @@ class LLMProvider(ABC):
         ...
 
     @abstractmethod
-    def extract_evidence(
+    def extract_evidence_from_file(
         self,
-        files: list[str],
-        workspace: Any,
+        file_path: str,
+        content: str,
+        goal: str,
     ) -> list[EvidenceCandidate]:
-        """Extract evidence candidates from workspace files."""
+        """Extract evidence candidates from a single file's content."""
         ...

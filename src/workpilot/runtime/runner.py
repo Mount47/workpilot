@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from workpilot.contracts import MissionContract
+from workpilot.evidence.extraction import EvidenceExtractor
 from workpilot.evidence.store import EvidenceStore
 from workpilot.providers.base import LLMProvider
 from workpilot.runtime import Run, RunState
 from workpilot.synthesis.synthesizer import Synthesizer
 from workpilot.trace.journal import TraceJournal
+from workpilot.verification.citation_verifier import CitationVerifier
 from workpilot.workspace.tools import WorkspaceTools
 from workpilot.artifacts.writer import ArtifactWriter
 
@@ -62,7 +64,6 @@ class Runtime:
                 data={"error": str(e)},
             )
         finally:
-            # Always write trace
             self.writer.write_json("trace.json", self.trace.export())
 
         return self.run
@@ -85,16 +86,21 @@ class Runtime:
             data={"file_count": len(files), "files": files},
         )
 
-        # 3. Extract evidence (Phase 1: provider generates stub evidence)
-        evidences = self.provider.extract_evidence(
-            files=files,
+        # 3. Extract evidence via EvidenceExtractor
+        extractor = EvidenceExtractor(
+            provider=self.provider,
             workspace=self.workspace,
+            goal=self.contract.goal,
         )
+        evidences = extractor.extract_all(files)
         for ev in evidences:
             self.evidence_store.insert(ev)
         self.trace.append(
             event_type="evidence_extracted",
-            data={"count": len(evidences)},
+            data={
+                "count": len(evidences),
+                "discarded": len(extractor.get_discarded()),
+            },
         )
 
         # 4. Synthesize
@@ -108,16 +114,24 @@ class Runtime:
             data={"artifacts": list(artifacts.keys())},
         )
 
-        # 5. Verify (Phase 1: skip, mark passed directly)
+        # 5. Verify — Citation Verifier
         self.run.transition(RunState.VERIFYING)
+        citation_verifier = CitationVerifier(
+            evidence_store=self.evidence_store,
+            workspace=self.workspace,
+        )
+        verify_results = citation_verifier.verify(artifacts=artifacts)
+
+        errors = [r for r in verify_results if r.status == "failed" and r.severity == "error"]
         verification_report = {
-            "status": "passed",
-            "checks": [],
-            "note": "Phase 1: verification skipped",
+            "status": "failed" if errors else "passed",
+            "checks": [r.to_dict() for r in verify_results],
+            "error_count": len(errors),
+            "total_checks": len(verify_results),
         }
         self.trace.append(
             event_type="verification_completed",
-            data={"status": "passed"},
+            data={"status": verification_report["status"], "error_count": len(errors)},
         )
 
         # 6. Write artifacts
@@ -125,9 +139,17 @@ class Runtime:
             self.writer.write(name, content)
         self.writer.write_json("verification_report.json", verification_report)
 
-        # 7. Done
-        self.run.transition(RunState.PASSED)
-        self.trace.append(
-            event_type="run_completed",
-            data={"status": "passed"},
-        )
+        # 7. Final state based on verification
+        if errors:
+            self.run.failure_reason = f"Citation verification failed: {len(errors)} error(s)"
+            self.run.transition(RunState.FAILED)
+            self.trace.append(
+                event_type="run_completed",
+                data={"status": "failed", "reason": self.run.failure_reason},
+            )
+        else:
+            self.run.transition(RunState.PASSED)
+            self.trace.append(
+                event_type="run_completed",
+                data={"status": "passed"},
+            )

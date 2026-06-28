@@ -1,0 +1,144 @@
+"""Tests for EvidenceExtractor — validation and extraction logic."""
+
+from pathlib import Path
+
+import pytest
+
+from workpilot.evidence.extraction import EvidenceExtractor
+from workpilot.providers.base import EvidenceCandidate, EvidenceType
+from workpilot.providers.stub import StubProvider
+from workpilot.workspace.tools import WorkspaceTools
+
+
+RICH_WORKSPACE = Path(__file__).parent / "fixtures" / "workspaces" / "rich_project"
+
+
+@pytest.fixture
+def rich_workspace() -> Path:
+    return RICH_WORKSPACE
+
+
+@pytest.fixture
+def extractor(rich_workspace: Path) -> EvidenceExtractor:
+    provider = StubProvider()
+    workspace = WorkspaceTools(workspace_root=rich_workspace)
+    return EvidenceExtractor(
+        provider=provider,
+        workspace=workspace,
+        goal="生成本周项目周报",
+    )
+
+
+def test_extract_all_returns_evidence(extractor: EvidenceExtractor) -> None:
+    """Extractor should return multiple evidence items from rich workspace."""
+    workspace = extractor.workspace
+    files = workspace.list_files()
+    evidences = extractor.extract_all(files)
+
+    assert len(evidences) > 0
+    for ev in evidences:
+        assert ev.evidence_id.startswith("E-")
+        assert ev.quote.strip() != ""
+
+
+def test_evidence_ids_are_unique(extractor: EvidenceExtractor) -> None:
+    """All evidence IDs should be unique within a single extraction run."""
+    files = extractor.workspace.list_files()
+    evidences = extractor.extract_all(files)
+
+    ids = [ev.evidence_id for ev in evidences]
+    assert len(ids) == len(set(ids))
+
+
+def test_quotes_exist_in_source(extractor: EvidenceExtractor) -> None:
+    """Every extracted quote must exist in its source file."""
+    files = extractor.workspace.list_files()
+    evidences = extractor.extract_all(files)
+
+    for ev in evidences:
+        content = extractor.workspace.read_file(ev.source_file)
+        assert ev.quote in content, (
+            f"Quote not found in {ev.source_file}: {ev.quote[:50]}"
+        )
+
+
+def test_line_range_contains_quote(extractor: EvidenceExtractor) -> None:
+    """Quote must appear within the specified line range."""
+    files = extractor.workspace.list_files()
+    evidences = extractor.extract_all(files)
+
+    for ev in evidences:
+        content = extractor.workspace.read_file(ev.source_file)
+        lines = content.splitlines()
+        window = "\n".join(lines[ev.start_line - 1 : ev.end_line])
+        assert ev.quote in window, (
+            f"Quote not in lines {ev.start_line}-{ev.end_line} of {ev.source_file}"
+        )
+
+
+def test_invalid_quote_is_discarded() -> None:
+    """Evidence with a quote not in the source should be discarded."""
+    from unittest.mock import MagicMock
+
+    workspace = WorkspaceTools(workspace_root=RICH_WORKSPACE)
+
+    fake_provider = MagicMock()
+    fake_provider.extract_evidence_from_file.return_value = [
+        EvidenceCandidate(
+            evidence_id="",
+            source_file="meeting_notes.md",
+            quote="this text does not exist anywhere in the file",
+            start_line=1,
+            end_line=1,
+            evidence_type=EvidenceType.CONTEXT,
+        )
+    ]
+
+    extractor = EvidenceExtractor(
+        provider=fake_provider,
+        workspace=workspace,
+        goal="test",
+    )
+    evidences = extractor.extract_all(["meeting_notes.md"])
+
+    assert len(evidences) == 0
+    assert len(extractor.get_discarded()) == 1
+    assert "not found" in extractor.get_discarded()[0]["reason"]
+
+
+def test_invalid_line_range_is_discarded() -> None:
+    """Evidence with end_line < start_line should be discarded."""
+    from unittest.mock import MagicMock
+
+    workspace = WorkspaceTools(workspace_root=RICH_WORKSPACE)
+
+    fake_provider = MagicMock()
+    fake_provider.extract_evidence_from_file.return_value = [
+        EvidenceCandidate(
+            evidence_id="",
+            source_file="meeting_notes.md",
+            quote="支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案，否则下游开发将被阻塞。",
+            start_line=5,
+            end_line=3,
+            evidence_type=EvidenceType.RISK,
+        )
+    ]
+
+    extractor = EvidenceExtractor(
+        provider=fake_provider,
+        workspace=workspace,
+        goal="test",
+    )
+    evidences = extractor.extract_all(["meeting_notes.md"])
+
+    assert len(evidences) == 0
+    assert "invalid line range" in extractor.get_discarded()[0]["reason"]
+
+
+def test_multiple_evidence_types_extracted(extractor: EvidenceExtractor) -> None:
+    """Extractor should identify different evidence types from rich content."""
+    files = extractor.workspace.list_files()
+    evidences = extractor.extract_all(files)
+
+    types_found = {ev.evidence_type for ev in evidences}
+    assert len(types_found) >= 2, f"Expected multiple types, got: {types_found}"
