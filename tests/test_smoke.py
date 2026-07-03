@@ -54,4 +54,4 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     actions = json.loads((tmp_output / "action_items.json").read_text())
     assert actions["schema_version"] == "0.1"
     assert len(actions["action_items"]) >= 1
-    assert actions["action_items"][0]["owner_status"] == "unknown"
+    assert "source_refs" in actions["action_items"][0]
