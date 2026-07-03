@@ -22,6 +22,8 @@ def run(
     goal: str = typer.Option(..., help="Mission goal"),
     output: Path = typer.Option(..., help="Output directory for artifacts"),
     provider: str = typer.Option("stub", help="LLM provider name"),
+    model: Optional[str] = typer.Option(None, help="Model name (overrides provider default)"),
+    base_url: Optional[str] = typer.Option(None, "--base-url", help="Custom API base URL"),
     max_steps: int = typer.Option(30, help="Maximum execution steps"),
     time_budget_seconds: int = typer.Option(300, help="Time budget in seconds"),
 ) -> None:
@@ -30,7 +32,13 @@ def run(
         typer.echo(f"Error: workspace '{workspace}' does not exist.", err=True)
         raise typer.Exit(1)
 
-    llm_provider = get_provider(provider)
+    provider_kwargs: dict = {}
+    if model:
+        provider_kwargs["model"] = model
+    if base_url:
+        provider_kwargs["base_url"] = base_url
+
+    llm_provider = get_provider(provider, **provider_kwargs)
     runtime = Runtime(
         workspace_root=workspace,
         goal=goal,

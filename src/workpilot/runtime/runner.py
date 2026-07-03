@@ -19,6 +19,10 @@ from workpilot.artifacts.writer import ArtifactWriter
 class Runtime:
     """Main runtime that drives a single run through the state machine."""
 
+    # Upper bound on synthesize→verify→revise cycles. Bounded so a model that
+    # keeps producing bad citations can't burn tokens forever (fail closed).
+    MAX_SYNTHESIS_ATTEMPTS = 3
+
     def __init__(
         self,
         workspace_root: Path,
@@ -103,43 +107,79 @@ class Runtime:
             },
         )
 
-        # 4. Synthesize
-        self.run.transition(RunState.SYNTHESIZING)
-        artifacts = self.synthesizer.generate(
-            contract=self.contract,
-            evidence_store=self.evidence_store,
-        )
-        self.trace.append(
-            event_type="artifacts_generated",
-            data={"artifacts": list(artifacts.keys())},
-        )
-
-        # 5. Verify — Citation Verifier
-        self.run.transition(RunState.VERIFYING)
+        # 4-5. Synthesize + Verify, with bounded feedback-driven retry.
+        #
+        # The loop is bounded (MAX_SYNTHESIS_ATTEMPTS) — never open-ended — to
+        # respect the contract's budget. On failure we feed the specific
+        # verification errors back into the next generation instead of blindly
+        # regenerating (that would just gamble on the model behaving). If all
+        # attempts are exhausted with errors still present, we fail closed.
         citation_verifier = CitationVerifier(
             evidence_store=self.evidence_store,
             workspace=self.workspace,
         )
-        verify_results = citation_verifier.verify(artifacts=artifacts)
 
-        errors = [r for r in verify_results if r.status == "failed" and r.severity == "error"]
+        feedback: str | None = None
+        artifacts: dict = {}
+        verify_results = []
+        errors = []
+
+        for attempt in range(1, self.MAX_SYNTHESIS_ATTEMPTS + 1):
+            # Synthesize (first pass) or revise (subsequent passes with feedback).
+            self.run.transition(
+                RunState.SYNTHESIZING if attempt == 1 else RunState.REVISING
+            )
+            artifacts = self.synthesizer.generate(
+                contract=self.contract,
+                evidence_store=self.evidence_store,
+                feedback=feedback,
+            )
+            self.trace.append(
+                event_type="artifacts_generated",
+                data={"attempt": attempt, "artifacts": list(artifacts.keys())},
+            )
+
+            # Verify citations.
+            self.run.transition(RunState.VERIFYING)
+            verify_results = citation_verifier.verify(artifacts=artifacts)
+            errors = [
+                r for r in verify_results
+                if r.status == "failed" and r.severity == "error"
+            ]
+            self.trace.append(
+                event_type="verification_completed",
+                data={
+                    "attempt": attempt,
+                    "status": "failed" if errors else "passed",
+                    "error_count": len(errors),
+                },
+            )
+
+            if not errors:
+                break
+
+            # Errors remain. If we still have attempts left, build feedback
+            # from the concrete failures and loop back into REVISING.
+            if attempt < self.MAX_SYNTHESIS_ATTEMPTS:
+                feedback = self._format_verification_feedback(errors)
+                self.trace.append(
+                    event_type="revision_requested",
+                    data={"attempt": attempt, "error_count": len(errors)},
+                )
+
         verification_report = {
             "status": "failed" if errors else "passed",
             "checks": [r.to_dict() for r in verify_results],
             "error_count": len(errors),
             "total_checks": len(verify_results),
         }
-        self.trace.append(
-            event_type="verification_completed",
-            data={"status": verification_report["status"], "error_count": len(errors)},
-        )
 
         # 6. Write artifacts
         for name, content in artifacts.items():
             self.writer.write(name, content)
         self.writer.write_json("verification_report.json", verification_report)
 
-        # 7. Final state based on verification
+        # 7. Final state — fail closed if errors survived all attempts.
         if errors:
             self.run.failure_reason = f"Citation verification failed: {len(errors)} error(s)"
             self.run.transition(RunState.FAILED)
@@ -153,3 +193,21 @@ class Runtime:
                 event_type="run_completed",
                 data={"status": "passed"},
             )
+
+    @staticmethod
+    def _format_verification_feedback(errors: list) -> str:
+        """Turn verification errors into corrective feedback for regeneration.
+
+        Each error already carries a human-readable message and location from
+        the verifier; we surface those so the next generation can target the
+        specific invalid citations rather than starting blind.
+        """
+        lines = [
+            "The previous output failed citation verification. "
+            "Fix ONLY the following problems. Do not invent new citations; "
+            "every [E-XXXX] reference must exist in the provided evidence.",
+        ]
+        for r in errors:
+            loc = f" ({r.location})" if r.location else ""
+            lines.append(f"- {r.message}{loc}")
+        return "\n".join(lines)
