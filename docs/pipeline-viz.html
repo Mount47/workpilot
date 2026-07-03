@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkPilot Case Flow</title>
+<style>
+:root {
+  --bg: #f6f1e8;
+  --ink: #182026;
+  --muted: #6b665d;
+  --line: #d9d0c0;
+  --panel: #fffaf0;
+  --panel-strong: #ffffff;
+  --green: #1f7a4d;
+  --green-soft: #e5f2ea;
+  --blue: #1d5f88;
+  --blue-soft: #e5eef4;
+  --red: #a33a32;
+  --amber: #9b6a1b;
+  --shadow: 0 18px 48px rgba(35, 29, 18, 0.12);
+  --mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(24, 32, 38, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(24, 32, 38, 0.03) 1px, transparent 1px),
+    var(--bg);
+  background-size: 24px 24px;
+  font-family: ui-serif, Georgia, "Times New Roman", "Noto Serif SC", serif;
+}
+
+button, input, select { font: inherit; }
+
+.shell {
+  width: min(1380px, calc(100vw - 40px));
+  margin: 0 auto;
+  padding: 28px 0 36px;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(34px, 4vw, 62px);
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.subtitle {
+  max-width: 760px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.run-card {
+  min-width: 310px;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow: 7px 7px 0 var(--ink);
+  padding: 14px;
+}
+
+.run-card dl {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.run-card dt { color: var(--muted); }
+.run-card dd { margin: 0; overflow-wrap: anywhere; }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 22px 0;
+}
+
+.btn {
+  height: 38px;
+  border: 2px solid var(--ink);
+  background: var(--panel-strong);
+  color: var(--ink);
+  padding: 0 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn.primary {
+  background: var(--ink);
+  color: #fff;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.counter {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 390px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.rail, .detail {
+  background: rgba(255, 250, 240, 0.82);
+  border: 2px solid var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.rail {
+  position: sticky;
+  top: 18px;
+  padding: 14px;
+}
+
+.rail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--line);
+  background: #fffdf7;
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.step-card:hover {
+  transform: translateX(2px);
+  border-left-color: var(--blue);
+}
+
+.step-card.active {
+  border-color: var(--ink);
+  border-left-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.step-card.done {
+  border-left-color: var(--green);
+}
+
+.step-card.failed {
+  border-left-color: var(--red);
+}
+
+.step-line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-index {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--panel);
+  font-family: var(--mono);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.step-title {
+  margin: 0;
+  font-family: ui-sans-serif, "Avenir Next", "Noto Sans SC", sans-serif;
+  font-weight: 760;
+  font-size: 14px;
+}
+
+.step-note {
+  margin: 8px 0 0 38px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.done .status { color: var(--green); }
+.active .status { color: var(--blue); }
+.failed .status { color: var(--red); }
+
+.detail {
+  min-height: 680px;
+  padding: 22px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 18px;
+}
+
+.section {
+  border-top: 2px solid var(--ink);
+  padding-top: 14px;
+  margin-top: 18px;
+}
+
+.section:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.section-title h2,
+.section-title h3 {
+  margin: 0;
+  font-family: ui-sans-serif, "Avenir Next", "Noto Sans SC", sans-serif;
+  letter-spacing: 0;
+}
+
+.section-title h2 { font-size: 28px; }
+.section-title h3 { font-size: 15px; }
+
+.tag {
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  padding: 4px 8px;
+  border-radius: 99px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.plain {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.io-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.io {
+  min-width: 0;
+}
+
+.io h3 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+pre {
+  margin: 0;
+  min-height: 244px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #152025;
+  color: #e6efe6;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace {
+  display: grid;
+  gap: 8px;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf7;
+}
+
+.event-seq {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.event-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.event-data {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.artifact {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf7;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.artifact span:last-child {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.meter {
+  height: 12px;
+  border: 1px solid var(--ink);
+  background: #fffdf7;
+  margin: 8px 0 0;
+}
+
+.meter > div {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  transition: width 0.3s ease;
+}
+
+.hidden-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 980px) {
+  .shell { width: min(100vw - 24px, 760px); }
+  .topbar, .workspace, .detail-grid, .io-grid { grid-template-columns: 1fr; }
+  .rail { position: static; }
+  .counter { margin-left: 0; width: 100%; }
+  .run-card { min-width: 0; }
+  .detail { min-height: 0; }
+}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">WorkPilot / AI Case Trace</p>
+      <h1>Case 处理过程可视化</h1>
+      <p class="subtitle">把一次 AI 任务拆成可以展示的核心逻辑步骤：每一步都有输入、处理动作、输出和 trace 事件。预处理、鉴权、参数解析这类基础设施步骤默认折叠，不干扰 case 主线。</p>
+    </div>
+    <aside class="run-card" aria-label="case context">
+      <dl>
+        <dt>case</dt><dd id="case-id">weekly-report-demo</dd>
+        <dt>goal</dt><dd>生成本周项目周报</dd>
+        <dt>provider</dt><dd>stub / LLM provider</dd>
+        <dt>runtime</dt><dd>Runtime._run_pipeline()</dd>
+      </dl>
+    </aside>
+  </header>
+
+  <section class="controls" aria-label="execution controls">
+    <button class="btn primary" id="next-btn" type="button">执行下一步</button>
+    <button class="btn" id="run-btn" type="button">自动执行</button>
+    <button class="btn ghost" id="reset-btn" type="button">重置</button>
+    <span class="counter" id="counter">0 / 5 steps executed</span>
+  </section>
+
+  <section class="workspace">
+    <aside class="rail">
+      <div class="rail-head">
+        <span>核心 case 逻辑</span>
+        <span id="run-state">pending</span>
+      </div>
+      <div class="step-list" id="step-list"></div>
+      <div class="hidden-note">
+        已隐藏：CLI 参数解析、workspace 路径校验、provider 初始化、run_id 生成、异常兜底、JSON 序列化等非 case 主线步骤。
+      </div>
+    </aside>
+
+    <section class="detail" aria-live="polite">
+      <div class="section">
+        <div class="section-title">
+          <h2 id="active-title">等待执行</h2>
+          <span class="tag" id="active-state">pending</span>
+        </div>
+        <p class="plain" id="active-desc">点击“执行下一步”，前端会按 Runtime 的真实顺序推进一步，并把该 step 的输入、输出和 trace 记录展开。</p>
+        <div class="meter" aria-label="pipeline progress"><div id="meter"></div></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <h3>Step 输入 / 输出</h3>
+          <span class="tag" id="io-label">not started</span>
+        </div>
+        <div class="io-grid">
+          <div class="io">
+            <h3>INPUT</h3>
+            <pre id="input-view">{}</pre>
+          </div>
+          <div class="io">
+            <h3>OUTPUT</h3>
+            <pre id="output-view">{}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-grid section">
+        <div>
+          <div class="section-title">
+            <h3>Trace Journal</h3>
+            <span class="tag" id="trace-count">0 events</span>
+          </div>
+          <div class="trace" id="trace-list"></div>
+        </div>
+        <div>
+          <div class="section-title">
+            <h3>Artifacts / Evidence</h3>
+            <span class="tag" id="artifact-count">empty</span>
+          </div>
+          <div class="artifact-list" id="artifact-list"></div>
+        </div>
+      </div>
+    </section>
+  </section>
+</main>
+
+<script>
+const run = {
+  id: "run_demo42",
+  workspace: "tests/fixtures/workspaces/basic_project",
+  goal: "生成本周项目周报",
+  outputDir: "runs/demo"
+};
+
+const steps = [
+  {
+    id: "retrieve",
+    state: "retrieving",
+    title: "Retrieve / 扫描工作区",
+    note: "把 case 可用材料收集成文件清单。",
+    desc: "Runtime 调用 WorkspaceTools.list_files()，拿到后续抽取证据需要读取的项目资料。这个 step 只关心业务输入源，不展示路径鉴权和 ignore 规则细节。",
+    input: {
+      workspace_root: run.workspace,
+      goal: run.goal
+    },
+    output: {
+      file_count: 2,
+      files: [
+        "issues.md",
+        "meeting_notes.md"
+      ]
+    },
+    trace: [
+      { event_type: "run_started", data: { goal: run.goal, run_id: run.id } },
+      { event_type: "workspace_scanned", data: { file_count: 2, files: ["issues.md", "meeting_notes.md"] } }
+    ],
+    artifacts: [
+      ["workspace files", "2 discovered"]
+    ]
+  },
+  {
+    id: "extract",
+    state: "retrieving",
+    title: "Extract / 抽取并验证证据",
+    note: "每个结论先变成可追溯证据。",
+    desc: "EvidenceExtractor 逐文件调用 provider.extract_evidence_from_file()，再检查 quote 是否真的存在于源文件和指定行范围内。无效候选会被丢弃，不进入 evidence store。",
+    input: {
+      files: ["issues.md", "meeting_notes.md"],
+      provider_call: "extract_evidence_from_file(file_path, content, goal)",
+      validation_rules: [
+        "quote is not empty",
+        "quote exists in source file",
+        "line range is valid",
+        "quote appears inside line window"
+      ]
+    },
+    output: {
+      evidence_count: 4,
+      discarded: 0,
+      samples: [
+        {
+          evidence_id: "E-0001",
+          source_file: "issues.md",
+          quote: "Login page fails on slow network.",
+          evidence_type: "risk"
+        },
+        {
+          evidence_id: "E-0002",
+          source_file: "meeting_notes.md",
+          quote: "Team agreed to prioritize citation verification.",
+          evidence_type: "decision"
+        }
+      ]
+    },
+    trace: [
+      { event_type: "evidence_extracted", data: { count: 4, discarded: 0 } }
+    ],
+    artifacts: [
+      ["evidence store", "4 entries"],
+      ["discarded candidates", "0"]
+    ]
+  },
+  {
+    id: "synthesize",
+    state: "synthesizing",
+    title: "Synthesize / 生成周报、风险和行动项",
+    note: "只用证据生成产物，缺证据写 unknown。",
+    desc: "Synthesizer.generate() 接收 MissionContract 和 EvidenceStore，生成 markdown 与结构化 JSON。当前实现是 deterministic stub，后续可以替换成真实 LLM provider，但输入输出边界保持一致。",
+    input: {
+      contract: {
+        run_id: run.id,
+        goal: run.goal,
+        max_steps: 30
+      },
+      evidence_refs: ["E-0001", "E-0002", "E-0003", "E-0004"]
+    },
+    output: {
+      artifacts: [
+        "weekly_report.md",
+        "risks.json",
+        "action_items.json"
+      ],
+      citation_policy: "artifact claims must cite [E-0000] or use unknown"
+    },
+    trace: [
+      { event_type: "artifacts_generated", data: { artifacts: ["weekly_report.md", "risks.json", "action_items.json"] } }
+    ],
+    artifacts: [
+      ["weekly_report.md", "markdown"],
+      ["risks.json", "structured"],
+      ["action_items.json", "structured"]
+    ]
+  },
+  {
+    id: "verify",
+    state: "verifying",
+    title: "Verify / 引用校验",
+    note: "确认每条引用都能回到真实来源。",
+    desc: "CitationVerifier 扫描 markdown 里的 [E-0000] 和 JSON 里的 source_refs，逐条检查 evidence 是否存在、源文件是否可读、quote 是否仍能在源文件中找到。",
+    input: {
+      artifacts: ["weekly_report.md", "risks.json", "action_items.json"],
+      evidence_store: "4 entries",
+      checks: [
+        "citation.exists",
+        "citation.source_exists",
+        "citation.quote_match",
+        "citation.line_range"
+      ]
+    },
+    output: {
+      status: "passed",
+      total_checks: 6,
+      error_count: 0,
+      checks: [
+        { check_id: "citation.valid", ref: "E-0001", status: "passed" },
+        { check_id: "citation.valid", ref: "E-0002", status: "passed" }
+      ]
+    },
+    trace: [
+      { event_type: "verification_completed", data: { status: "passed", error_count: 0 } }
+    ],
+    artifacts: [
+      ["verification_report.json", "passed"],
+      ["checked citations", "6"]
+    ]
+  },
+  {
+    id: "write",
+    state: "passed",
+    title: "Write / 写出结果和处理记录",
+    note: "把最终产物、校验报告、trace 一起落盘。",
+    desc: "ArtifactWriter 写出所有 artifacts，再写 verification_report.json 和 trace.json。最终状态由校验结果决定：有 error 则 failed，否则 passed。",
+    input: {
+      output_dir: run.outputDir,
+      verification: "passed",
+      artifacts: ["weekly_report.md", "risks.json", "action_items.json"]
+    },
+    output: {
+      written: [
+        "runs/demo/weekly_report.md",
+        "runs/demo/risks.json",
+        "runs/demo/action_items.json",
+        "runs/demo/verification_report.json",
+        "runs/demo/trace.json"
+      ],
+      final_state: "passed"
+    },
+    trace: [
+      { event_type: "run_completed", data: { status: "passed" } }
+    ],
+    artifacts: [
+      ["weekly_report.md", "written"],
+      ["risks.json", "written"],
+      ["action_items.json", "written"],
+      ["verification_report.json", "written"],
+      ["trace.json", "written"]
+    ]
+  }
+];
+
+let current = -1;
+let selected = -1;
+let timer = null;
+let traceEvents = [];
+
+const el = {
+  stepList: document.getElementById("step-list"),
+  next: document.getElementById("next-btn"),
+  run: document.getElementById("run-btn"),
+  reset: document.getElementById("reset-btn"),
+  counter: document.getElementById("counter"),
+  runState: document.getElementById("run-state"),
+  title: document.getElementById("active-title"),
+  state: document.getElementById("active-state"),
+  desc: document.getElementById("active-desc"),
+  input: document.getElementById("input-view"),
+  output: document.getElementById("output-view"),
+  ioLabel: document.getElementById("io-label"),
+  meter: document.getElementById("meter"),
+  traceList: document.getElementById("trace-list"),
+  traceCount: document.getElementById("trace-count"),
+  artifactList: document.getElementById("artifact-list"),
+  artifactCount: document.getElementById("artifact-count")
+};
+
+function pretty(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function statusFor(index) {
+  if (index < current) return "done";
+  if (index === current) return "active";
+  return "waiting";
+}
+
+function renderSteps() {
+  el.stepList.innerHTML = "";
+  steps.forEach((step, index) => {
+    const status = statusFor(index);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `step-card ${status} ${index === selected ? "active" : ""}`;
+    button.innerHTML = `
+      <div class="step-line">
+        <span class="step-index">${index + 1}</span>
+        <p class="step-title">${step.title}</p>
+        <span class="status">${status}</span>
+      </div>
+      <p class="step-note">${step.note}</p>
+    `;
+    button.addEventListener("click", () => selectStep(index));
+    el.stepList.appendChild(button);
+  });
+}
+
+function renderDetail() {
+  const step = steps[selected];
+  if (!step) {
+    el.title.textContent = "等待执行";
+    el.state.textContent = "pending";
+    el.desc.textContent = "点击“执行下一步”，前端会按 Runtime 的真实顺序推进一步，并把该 step 的输入、输出和 trace 记录展开。";
+    el.input.textContent = "{}";
+    el.output.textContent = "{}";
+    el.ioLabel.textContent = "not started";
+    renderArtifacts([]);
+    return;
+  }
+
+  el.title.textContent = step.title;
+  el.state.textContent = step.state;
+  el.desc.textContent = step.desc;
+  el.input.textContent = pretty(step.input);
+  el.output.textContent = selected <= current ? pretty(step.output) : "{\n  \"waiting\": \"execute this step to reveal output\"\n}";
+  el.ioLabel.textContent = selected <= current ? "executed" : "preview input";
+  renderArtifacts(selected <= current ? step.artifacts : []);
+}
+
+function renderTrace() {
+  el.traceList.innerHTML = "";
+  traceEvents.forEach((event, index) => {
+    const item = document.createElement("div");
+    item.className = "event";
+    item.innerHTML = `
+      <span class="event-seq">#${index + 1}</span>
+      <div>
+        <p class="event-title">${event.event_type}</p>
+        <p class="event-data">${escapeHtml(JSON.stringify(event.data))}</p>
+      </div>
+    `;
+    el.traceList.appendChild(item);
+  });
+  if (traceEvents.length === 0) {
+    el.traceList.innerHTML = '<p class="plain">尚无 trace。执行第一步后会开始追加事件。</p>';
+  }
+  el.traceCount.textContent = `${traceEvents.length} events`;
+}
+
+function renderArtifacts(items) {
+  el.artifactList.innerHTML = "";
+  items.forEach(([name, state]) => {
+    const row = document.createElement("div");
+    row.className = "artifact";
+    row.innerHTML = `<span>${name}</span><span>${state}</span>`;
+    el.artifactList.appendChild(row);
+  });
+  if (items.length === 0) {
+    el.artifactList.innerHTML = '<p class="plain">执行 step 后显示该阶段产物。</p>';
+  }
+  el.artifactCount.textContent = items.length ? `${items.length} items` : "empty";
+}
+
+function renderControls() {
+  const completed = Math.max(current + 1, 0);
+  const done = current >= steps.length - 1;
+  el.next.disabled = done;
+  el.run.disabled = done;
+  el.reset.disabled = current < 0 && traceEvents.length === 0;
+  el.counter.textContent = `${completed} / ${steps.length} steps executed`;
+  el.runState.textContent = done ? "passed" : (current >= 0 ? steps[current].state : "pending");
+  el.meter.style.width = `${(completed / steps.length) * 100}%`;
+}
+
+function render() {
+  renderSteps();
+  renderDetail();
+  renderTrace();
+  renderControls();
+}
+
+function executeNext() {
+  if (current >= steps.length - 1) return;
+  current += 1;
+  selected = current;
+  traceEvents = traceEvents.concat(steps[current].trace);
+  render();
+}
+
+function selectStep(index) {
+  selected = index;
+  render();
+}
+
+function reset() {
+  stopAutoRun();
+  current = -1;
+  selected = -1;
+  traceEvents = [];
+  render();
+}
+
+function autoRun() {
+  if (timer) {
+    stopAutoRun();
+    return;
+  }
+  executeNext();
+  timer = window.setInterval(() => {
+    if (current >= steps.length - 1) {
+      stopAutoRun();
+      return;
+    }
+    executeNext();
+  }, 900);
+  el.run.textContent = "暂停";
+}
+
+function stopAutoRun() {
+  if (timer) {
+    window.clearInterval(timer);
+    timer = null;
+  }
+  el.run.textContent = "自动执行";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+el.next.addEventListener("click", executeNext);
+el.run.addEventListener("click", autoRun);
+el.reset.addEventListener("click", reset);
+
+render();
+</script>
+</body>
+</html>

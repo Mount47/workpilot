@@ -42,6 +42,7 @@ Mission Contract → Plan → Retrieve → Extract Evidence → Synthesize → V
 | 文档 | 说明 |
 |------|------|
 | [Agent Runtime](./dev/agent_runtime.md) | 受控工作流、状态机、步骤生命周期 |
+| [Case 处理过程可视化](./pipeline-viz.html) | 可点击执行的 AI case 输入/输出/trace 演示 |
 | [Verifier 规则](./dev/verifier_rules.md) | 引用、支撑、结构、trace 检查规则 |
 | [Provider 架构](./dev/provider_architecture.md) | 多模型 API 支持（GPT/Claude/GLM/DeepSeek/Qwen） |
 | [开发方案](./dev/implementation_plan.md) | 五阶段递进实现计划 |
