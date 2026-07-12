@@ -14,6 +14,12 @@ class MissionContract(BaseModel):
     workspace_root: Path
     allowed_tools: list[str] = Field(
         default_factory=lambda: [
+            "workspace.scan",
+            "evidence.extract",
+            "claims.build",
+            "artifacts.render",
+            "verification.run",
+            "artifacts.finalize",
             "list_files",
             "read_file",
             "search_text",
@@ -27,6 +33,9 @@ class MissionContract(BaseModel):
             "weekly_report",
             "risks",
             "action_items",
+            "project_snapshot",
+            "plan",
+            "run_context",
             "verification_report",
             "trace",
         ]

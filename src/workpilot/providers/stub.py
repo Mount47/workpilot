@@ -2,7 +2,14 @@
 
 from pydantic import BaseModel
 
-from workpilot.providers.base import EvidenceCandidate, EvidenceType, LLMProvider
+from workpilot.providers.base import (
+    EvidenceCandidate,
+    EvidenceExtractionResult,
+    EvidenceType,
+    GenerationResult,
+    LLMProvider,
+    StructuredGenerationResult,
+)
 
 
 class StubProvider(LLMProvider):
@@ -14,7 +21,7 @@ class StubProvider(LLMProvider):
         response_model: type[BaseModel],
         system_prompt: str | None = None,
         temperature: float = 0.0,
-    ) -> BaseModel:
+    ) -> StructuredGenerationResult:
         raise NotImplementedError("StubProvider.generate_structured not used in Phase 1")
 
     def generate_text(
@@ -22,15 +29,19 @@ class StubProvider(LLMProvider):
         prompt: str,
         system_prompt: str | None = None,
         temperature: float = 0.0,
-    ) -> str:
-        return "Stub response: no real LLM invoked."
+    ) -> GenerationResult:
+        return GenerationResult(
+            content="Stub response: no real LLM invoked.",
+            provider="stub",
+            model="stub",
+        )
 
     def extract_evidence_from_file(
         self,
         file_path: str,
         content: str,
         goal: str,
-    ) -> list[EvidenceCandidate]:
+    ) -> EvidenceExtractionResult:
         """Extract fixture evidence from a single file.
 
         Heuristic: scan lines for keywords to assign evidence types,
@@ -38,7 +49,7 @@ class StubProvider(LLMProvider):
         """
         lines = content.strip().splitlines()
         if not lines:
-            return []
+            return EvidenceExtractionResult(candidates=[])
 
         evidences: list[EvidenceCandidate] = []
         evidence_counter = 0
@@ -76,7 +87,7 @@ class StubProvider(LLMProvider):
                 )
             )
 
-        return evidences
+        return EvidenceExtractionResult(candidates=evidences)
 
     @staticmethod
     def _classify_line(line: str) -> str | None:

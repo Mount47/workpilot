@@ -1,64 +1,80 @@
-"""Provider registry — resolve provider by name."""
+"""Data-driven Provider registry and adapter construction."""
 
-import os
+from typing import Any
 
+from workpilot.config import Settings
 from workpilot.providers.base import LLMProvider
+from workpilot.providers.specs import (
+    PROVIDER_DESCRIPTORS,
+    ProviderDescriptor,
+    ProviderTransport,
+)
 from workpilot.providers.stub import StubProvider
 
+
+AVAILABLE = sorted(PROVIDER_DESCRIPTORS)
+
+# Backward-compatible metadata exports for callers that used the old registry.
 OPENAI_COMPATIBLE_DEFAULTS: dict[str, dict[str, str]] = {
-    "openai": {
-        "model": "gpt-4o",
-        "base_url": "https://api.openai.com/v1",
-        "env_key": "OPENAI_API_KEY",
-    },
-    "deepseek": {
-        "model": "deepseek-chat",
-        "base_url": "https://api.deepseek.com/v1",
-        "env_key": "DEEPSEEK_API_KEY",
-    },
-    "qwen": {
-        "model": "qwen-plus",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "env_key": "DASHSCOPE_API_KEY",
-    },
-    "glm": {
-        "model": "glm-4",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "env_key": "GLM_API_KEY",
-    },
+    name: {
+        "model": descriptor.default_model or "",
+        "base_url": descriptor.default_base_url or "",
+    }
+    for name, descriptor in PROVIDER_DESCRIPTORS.items()
+    if descriptor.transport == ProviderTransport.OPENAI_COMPATIBLE
+    and name != "custom"
 }
+CLAUDE_DEFAULT_MODEL = PROVIDER_DESCRIPTORS["claude"].default_model or ""
 
 
-def get_provider(name: str, **kwargs) -> LLMProvider:
-    """Get a provider instance by name.
+def get_provider_descriptor(name: str) -> ProviderDescriptor:
+    """Return an isolated descriptor for UI, validation and diagnostics."""
+    descriptor = PROVIDER_DESCRIPTORS.get(name)
+    if descriptor is None:
+        raise ValueError(f"Unknown provider '{name}'. Available: {', '.join(AVAILABLE)}")
+    return descriptor.model_copy(deep=True)
 
-    Args:
-        name: Provider name (e.g. 'stub', 'openai', 'deepseek')
-        **kwargs: Provider-specific configuration (api_key, model, base_url, etc.)
 
-    Returns:
-        An initialized LLMProvider instance.
+def get_provider(name: str, **kwargs: Any) -> LLMProvider:
+    """Build the adapter selected by a ProviderDescriptor."""
+    descriptor = get_provider_descriptor(name)
+    if descriptor.transport == ProviderTransport.STUB:
+        return StubProvider()
 
-    Raises:
-        ValueError: If provider name is not registered.
-    """
-    if name == "stub":
-        return StubProvider(**kwargs)
+    settings = Settings()
+    api_key = kwargs.pop("api_key", None) or settings.api_key_for(name)
+    model = kwargs.pop("model", None) or settings.workpilot_model or descriptor.default_model
+    configured_base_url = kwargs.pop("base_url", None) or settings.workpilot_base_url
+    base_url = configured_base_url or descriptor.default_base_url
 
-    if name in OPENAI_COMPATIBLE_DEFAULTS:
+    if descriptor.transport == ProviderTransport.ANTHROPIC_NATIVE:
+        from workpilot.providers.claude_provider import ClaudeProvider
+
+        if not model:
+            raise ValueError(f"Provider '{name}' requires an explicit model")
+        return ClaudeProvider(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            provider_name=name,
+            **kwargs,
+        )
+
+    if descriptor.transport == ProviderTransport.OPENAI_COMPATIBLE:
         from workpilot.providers.openai_provider import OpenAIProvider
 
-        defaults = OPENAI_COMPATIBLE_DEFAULTS[name]
-        api_key = kwargs.pop("api_key", None) or os.environ.get(defaults["env_key"], "")
-        model = kwargs.pop("model", None) or defaults["model"]
-        base_url = kwargs.pop("base_url", None) or defaults["base_url"]
-
+        if not model:
+            raise ValueError(f"Provider '{name}' requires --model or WORKPILOT_MODEL")
+        if not base_url:
+            raise ValueError(
+                f"Provider '{name}' requires --base-url or WORKPILOT_BASE_URL"
+            )
         return OpenAIProvider(
             api_key=api_key,
             model=model,
             base_url=base_url,
+            provider_name=name,
             **kwargs,
         )
 
-    available = ", ".join(sorted(["stub"] + list(OPENAI_COMPATIBLE_DEFAULTS.keys())))
-    raise ValueError(f"Unknown provider '{name}'. Available: {available}")
+    raise RuntimeError(f"Unsupported provider transport: {descriptor.transport.value}")

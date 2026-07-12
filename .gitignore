@@ -32,3 +32,7 @@ Thumbs.db
 # Project
 runs/
 /tmp/
+
+# Secrets — never commit real API keys
+.env
+.env.local

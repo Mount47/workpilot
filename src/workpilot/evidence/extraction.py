@@ -1,6 +1,9 @@
 """Evidence extractor — orchestrates per-file evidence extraction with validation."""
 
-from workpilot.providers.base import EvidenceCandidate, LLMProvider
+from collections.abc import Callable
+
+from workpilot.domain import Evidence, SourceLocator
+from workpilot.providers.base import EvidenceCandidate, GenerationResult, LLMProvider
 from workpilot.workspace.tools import WorkspaceTools
 
 
@@ -16,16 +19,20 @@ class EvidenceExtractor:
         provider: LLMProvider,
         workspace: WorkspaceTools,
         goal: str,
+        on_model_call: Callable[[GenerationResult], None] | None = None,
     ) -> None:
         self.provider = provider
         self.workspace = workspace
         self.goal = goal
+        self.on_model_call = on_model_call
         self._counter = 0
         self._discarded: list[dict] = []
+        self._model_calls: list[GenerationResult] = []
+        self._provider_errors: list[dict[str, str]] = []
 
-    def extract_all(self, files: list[str]) -> list[EvidenceCandidate]:
+    def extract_all(self, files: list[str]) -> list[Evidence]:
         """Extract evidence from all files. Returns validated candidates."""
-        all_evidence: list[EvidenceCandidate] = []
+        all_evidence: list[Evidence] = []
 
         for file_path in files:
             try:
@@ -33,13 +40,21 @@ class EvidenceExtractor:
             except (PermissionError, FileNotFoundError):
                 continue
 
-            candidates = self.provider.extract_evidence_from_file(
+            extraction = self.provider.extract_evidence_from_file(
                 file_path=file_path,
                 content=content,
                 goal=self.goal,
             )
+            self._model_calls.extend(extraction.generations)
+            if extraction.error_type:
+                self._provider_errors.append(
+                    {"source_file": file_path, "error_type": extraction.error_type}
+                )
+            if self.on_model_call:
+                for generation in extraction.generations:
+                    self.on_model_call(generation)
 
-            for candidate in candidates:
+            for candidate in extraction.candidates:
                 validated = self._validate_and_assign_id(candidate, content)
                 if validated is not None:
                     all_evidence.append(validated)
@@ -50,9 +65,17 @@ class EvidenceExtractor:
         """Return list of discarded candidates with reasons."""
         return self._discarded
 
+    def get_model_calls(self) -> list[GenerationResult]:
+        """Return physical provider calls made during extraction."""
+        return list(self._model_calls)
+
+    def get_provider_errors(self) -> list[dict[str, str]]:
+        """Return provider failures separately from valid empty extraction."""
+        return list(self._provider_errors)
+
     def _validate_and_assign_id(
         self, candidate: EvidenceCandidate, source_content: str
-    ) -> EvidenceCandidate | None:
+    ) -> Evidence | None:
         """Validate quote exists in source and assign a stable ID."""
         lines = source_content.splitlines()
 
@@ -78,12 +101,14 @@ class EvidenceExtractor:
             return None
 
         self._counter += 1
-        return EvidenceCandidate(
+        return Evidence(
             evidence_id=f"E-{self._counter:04d}",
-            source_file=candidate.source_file,
+            locator=SourceLocator.for_file_lines(
+                source_file=candidate.source_file,
+                start_line=candidate.start_line,
+                end_line=candidate.end_line,
+            ),
             quote=candidate.quote.strip(),
-            start_line=candidate.start_line,
-            end_line=candidate.end_line,
             evidence_type=candidate.evidence_type,
         )
 

@@ -1,6 +1,6 @@
-"""Evidence store — manages evidence records for a run."""
+"""Evidence store — manages validated evidence records for a run."""
 
-from workpilot.providers.base import EvidenceCandidate
+from workpilot.domain import Evidence
 
 
 class EvidenceStore:
@@ -8,17 +8,17 @@ class EvidenceStore:
 
     def __init__(self, run_id: str) -> None:
         self.run_id = run_id
-        self._records: dict[str, EvidenceCandidate] = {}
+        self._records: dict[str, Evidence] = {}
 
-    def insert(self, evidence: EvidenceCandidate) -> None:
+    def insert(self, evidence: Evidence) -> None:
         """Insert an evidence record. Overwrites if same ID exists."""
         self._records[evidence.evidence_id] = evidence
 
-    def get_by_id(self, evidence_id: str) -> EvidenceCandidate | None:
+    def get_by_id(self, evidence_id: str) -> Evidence | None:
         """Get evidence by ID, returns None if not found."""
         return self._records.get(evidence_id)
 
-    def list_all(self) -> list[EvidenceCandidate]:
+    def list_all(self) -> list[Evidence]:
         """List all evidence records."""
         return list(self._records.values())
 

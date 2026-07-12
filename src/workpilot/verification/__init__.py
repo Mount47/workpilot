@@ -1,5 +1,7 @@
-"""Verification package — Phase 3 will implement concrete verifiers."""
+"""Verification package."""
 
 from workpilot.verification.base import Verifier
+from workpilot.verification.claim_support_verifier import ClaimSupportVerifier
+from workpilot.verification.citation_verifier import CitationVerifier
 
-__all__ = ["Verifier"]
+__all__ = ["Verifier", "CitationVerifier", "ClaimSupportVerifier"]

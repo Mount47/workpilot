@@ -1,11 +1,11 @@
-"""OpenAI-compatible provider — works with OpenAI, DeepSeek, Qwen and GLM."""
+"""Anthropic Claude provider using the native messages API."""
 
 import json
 import os
 from time import monotonic
 from typing import Any
 
-from openai import OpenAI
+from anthropic import Anthropic
 from pydantic import BaseModel, ValidationError
 
 from workpilot.providers.base import (
@@ -18,66 +18,34 @@ from workpilot.providers.base import (
     StructuredGenerationResult,
 )
 from workpilot.providers.errors import ProviderCallError, classify_provider_exception
-
-EVIDENCE_EXTRACTION_SYSTEM = """You are an evidence extraction engine for project reports.
-Given a source file from a project workspace, identify factual statements that serve as evidence for a weekly status report.
-
-Rules:
-- Extract ONLY statements that are explicitly written in the file. Never infer or paraphrase.
-- Each quote must be an EXACT substring of the source file content.
-- Classify each piece of evidence by type: progress, decision, risk, blocker, action_item, context, requirement_change.
-- Include the exact line numbers (1-indexed) where the quote appears.
-- If the file has no useful evidence for the goal, return an empty list.
-
-Respond with a JSON array of objects:
-[
-  {
-    "quote": "exact text from the file",
-    "start_line": 1,
-    "end_line": 1,
-    "evidence_type": "progress"
-  }
-]
-
-Only output valid JSON. No markdown fences, no explanation."""
-
-EVIDENCE_EXTRACTION_USER = """Goal: {goal}
-
-File: {file_path}
-
-Content:
-{content}
-
-Extract evidence relevant to the goal. Return a JSON array."""
+from workpilot.providers.openai_provider import (
+    EVIDENCE_EXTRACTION_SYSTEM,
+    EVIDENCE_EXTRACTION_USER,
+)
 
 
-class OpenAIProvider(LLMProvider):
-    """OpenAI-compatible provider with observable call results."""
+class ClaudeProvider(LLMProvider):
+    """Claude provider with the same observable boundary as other providers."""
 
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "deepseek-chat",
+        model: str = "claude-sonnet-4-5",
         base_url: str | None = None,
         max_retries: int = 1,
         timeout: float = 60.0,
-        provider_name: str = "openai",
+        max_tokens: int = 4096,
+        provider_name: str = "claude",
     ) -> None:
-        resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        if not resolved_key:
-            for env_var in ["DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "GLM_API_KEY"]:
-                resolved_key = os.environ.get(env_var, "")
-                if resolved_key:
-                    break
-
+        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model = model
         self.provider_name = provider_name
         self.max_retries = max_retries
-        self.client = OpenAI(
-            api_key=resolved_key,
-            base_url=base_url,
-            timeout=timeout,
-        )
+        self.max_tokens = max_tokens
+        client_kwargs: dict[str, Any] = {"api_key": resolved_key, "timeout": timeout}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = Anthropic(**client_kwargs)
 
     def generate_text(
         self,
@@ -85,11 +53,37 @@ class OpenAIProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.0,
     ) -> GenerationResult:
-        messages: list[dict[str, str]] = []
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        return self._create_completion(messages, temperature)
+            kwargs["system"] = system_prompt
+        started = monotonic()
+        try:
+            response = self.client.messages.create(**kwargs)
+        except Exception as exc:
+            raise ProviderCallError(
+                self.provider_name,
+                classify_provider_exception(exc),
+            ) from exc
+        latency_ms = (monotonic() - started) * 1000
+        parts = [block.text for block in response.content if block.type == "text"]
+        usage = getattr(response, "usage", None)
+        request_id = getattr(response, "id", None)
+        stop_reason = getattr(response, "stop_reason", None)
+        return GenerationResult(
+            content="".join(parts),
+            provider=self.provider_name,
+            model=self.model,
+            input_tokens=self._integer_attr(usage, "input_tokens"),
+            output_tokens=self._integer_attr(usage, "output_tokens"),
+            latency_ms=latency_ms,
+            request_id=request_id if isinstance(request_id, str) else None,
+            finish_reason=stop_reason if isinstance(stop_reason, str) else None,
+        )
 
     def generate_structured(
         self,
@@ -105,14 +99,14 @@ class OpenAIProvider(LLMProvider):
         )
         if system_prompt:
             full_system = system_prompt + "\n\n" + full_system
-        messages = [
-            {"role": "system", "content": full_system},
-            {"role": "user", "content": prompt},
-        ]
         generations: list[GenerationResult] = []
 
         for attempt in range(1 + self.max_retries):
-            generation = self._create_completion(messages, temperature)
+            generation = self.generate_text(
+                prompt=prompt,
+                system_prompt=full_system,
+                temperature=temperature,
+            )
             generations.append(generation)
             text = self._strip_markdown_fences(generation.content)
             try:
@@ -139,14 +133,12 @@ class OpenAIProvider(LLMProvider):
     ) -> EvidenceExtractionResult:
         if not content.strip():
             return EvidenceExtractionResult(candidates=[])
-
         user_prompt = EVIDENCE_EXTRACTION_USER.format(
             goal=goal,
             file_path=file_path,
             content=content,
         )
         generations: list[GenerationResult] = []
-
         for attempt in range(1 + self.max_retries):
             generation = self.generate_text(
                 prompt=user_prompt,
@@ -169,51 +161,15 @@ class OpenAIProvider(LLMProvider):
                         generations=tuple(generations),
                         error_type="malformed_response",
                     )
-
         raise RuntimeError("Unreachable")
-
-    def _create_completion(
-        self,
-        messages: list[dict[str, str]],
-        temperature: float,
-    ) -> GenerationResult:
-        started = monotonic()
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-            )
-        except Exception as exc:
-            raise ProviderCallError(
-                self.provider_name,
-                classify_provider_exception(exc),
-            ) from exc
-        latency_ms = (monotonic() - started) * 1000
-        choice = response.choices[0]
-        usage = getattr(response, "usage", None)
-        input_tokens = self._integer_attr(usage, "prompt_tokens")
-        output_tokens = self._integer_attr(usage, "completion_tokens")
-        request_id = getattr(response, "id", None)
-        finish_reason = getattr(choice, "finish_reason", None)
-        return GenerationResult(
-            content=choice.message.content or "",
-            provider=self.provider_name,
-            model=self.model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            latency_ms=latency_ms,
-            request_id=request_id if isinstance(request_id, str) else None,
-            finish_reason=finish_reason if isinstance(finish_reason, str) else None,
-        )
 
     @staticmethod
     def _integer_attr(obj: Any, name: str) -> int:
         value = getattr(obj, name, 0) if obj is not None else 0
         return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
+    @staticmethod
     def _parse_candidates(
-        self,
         items: list[dict[str, Any]],
         file_path: str,
     ) -> list[EvidenceCandidate]:

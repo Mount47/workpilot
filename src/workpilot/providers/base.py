@@ -1,6 +1,7 @@
 """LLM Provider abstract base."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -30,6 +31,55 @@ class EvidenceCandidate(BaseModel):
     evidence_type: str = EvidenceType.CONTEXT
 
 
+class GenerationResult(BaseModel):
+    """Observable facts from one physical model API call."""
+
+    content: str
+    provider: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: float = 0.0
+    request_id: str | None = None
+    finish_reason: str | None = None
+    estimated_cost: float | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
+class StructuredGenerationResult:
+    """Validated structured value plus every physical retry call."""
+
+    value: BaseModel
+    generations: tuple[GenerationResult, ...]
+
+
+@dataclass(frozen=True)
+class EvidenceExtractionResult:
+    """Evidence candidates plus model calls and explicit failure semantics."""
+
+    candidates: list[EvidenceCandidate]
+    generations: tuple[GenerationResult, ...] = ()
+    error_type: str | None = None
+
+
+class ProviderResponseError(ValueError):
+    """A model response could not be validated after bounded retries."""
+
+    def __init__(
+        self,
+        message: str,
+        generations: tuple[GenerationResult, ...],
+    ) -> None:
+        super().__init__(message)
+        self.generations = generations
+        self.error_type = "invalid_response"
+        self.retryable = False
+
+
 class LLMProvider(ABC):
     """Abstract base class for all LLM providers."""
 
@@ -40,7 +90,7 @@ class LLMProvider(ABC):
         response_model: type[BaseModel],
         system_prompt: str | None = None,
         temperature: float = 0.0,
-    ) -> BaseModel:
+    ) -> StructuredGenerationResult:
         """Generate structured output conforming to response_model schema."""
         ...
 
@@ -50,7 +100,7 @@ class LLMProvider(ABC):
         prompt: str,
         system_prompt: str | None = None,
         temperature: float = 0.0,
-    ) -> str:
+    ) -> GenerationResult:
         """Generate free-form text."""
         ...
 
@@ -60,6 +110,6 @@ class LLMProvider(ABC):
         file_path: str,
         content: str,
         goal: str,
-    ) -> list[EvidenceCandidate]:
+    ) -> EvidenceExtractionResult:
         """Extract evidence candidates from a single file's content."""
         ...
