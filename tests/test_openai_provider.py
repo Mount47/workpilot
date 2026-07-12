@@ -1,6 +1,7 @@
 """Tests for OpenAI-compatible provider — uses mocked HTTP responses."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,23 +18,37 @@ def mock_openai_client():
         yield mock_client
 
 
-def _make_chat_response(content: str):
+def _make_chat_response(
+    content: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+):
     """Build a mock chat completion response."""
     choice = MagicMock()
     choice.message.content = content
+    choice.finish_reason = "stop"
     response = MagicMock()
     response.choices = [choice]
+    response.id = "request-1"
+    response.usage = SimpleNamespace(
+        prompt_tokens=input_tokens,
+        completion_tokens=output_tokens,
+    )
     return response
 
 
 def test_generate_text(mock_openai_client) -> None:
     mock_openai_client.chat.completions.create.return_value = _make_chat_response(
-        "Hello world"
+        "Hello world", input_tokens=3, output_tokens=2
     )
     provider = OpenAIProvider(api_key="test-key", model="test-model")
     result = provider.generate_text("Say hello")
 
-    assert result == "Hello world"
+    assert result.content == "Hello world"
+    assert result.input_tokens == 3
+    assert result.output_tokens == 2
+    assert result.total_tokens == 5
+    assert result.request_id == "request-1"
     mock_openai_client.chat.completions.create.assert_called_once()
     call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
     assert call_kwargs["model"] == "test-model"
@@ -69,17 +84,19 @@ def test_extract_evidence_from_file_parses_json(mock_openai_client) -> None:
     )
 
     provider = OpenAIProvider(api_key="test-key", model="m")
-    candidates = provider.extract_evidence_from_file(
+    extraction = provider.extract_evidence_from_file(
         file_path="notes.md",
         content="line1\nline2",
         goal="周报",
     )
 
+    candidates = extraction.candidates
     assert len(candidates) == 2
     assert candidates[0].quote == "QPS 从 1200 提升至 1380"
     assert candidates[0].evidence_type == "progress"
     assert candidates[0].start_line == 7
     assert candidates[1].evidence_type == "risk"
+    assert len(extraction.generations) == 1
 
 
 def test_extract_evidence_strips_markdown_fences(mock_openai_client) -> None:
@@ -89,10 +106,10 @@ def test_extract_evidence_strips_markdown_fences(mock_openai_client) -> None:
     )
 
     provider = OpenAIProvider(api_key="test-key", model="m")
-    candidates = provider.extract_evidence_from_file("f.md", "test", "goal")
+    extraction = provider.extract_evidence_from_file("f.md", "test", "goal")
 
-    assert len(candidates) == 1
-    assert candidates[0].quote == "test"
+    assert len(extraction.candidates) == 1
+    assert extraction.candidates[0].quote == "test"
 
 
 def test_extract_evidence_handles_malformed_json(mock_openai_client) -> None:
@@ -101,16 +118,19 @@ def test_extract_evidence_handles_malformed_json(mock_openai_client) -> None:
     )
 
     provider = OpenAIProvider(api_key="test-key", model="m")
-    candidates = provider.extract_evidence_from_file("f.md", "content", "goal")
+    extraction = provider.extract_evidence_from_file("f.md", "content", "goal")
 
-    assert candidates == []
+    assert extraction.candidates == []
+    assert extraction.error_type == "malformed_response"
+    assert len(extraction.generations) == 2
 
 
 def test_extract_evidence_handles_empty_content(mock_openai_client) -> None:
     provider = OpenAIProvider(api_key="test-key", model="m")
-    candidates = provider.extract_evidence_from_file("f.md", "  ", "goal")
+    extraction = provider.extract_evidence_from_file("f.md", "  ", "goal")
 
-    assert candidates == []
+    assert extraction.candidates == []
+    assert extraction.generations == ()
     mock_openai_client.chat.completions.create.assert_not_called()
 
 
@@ -123,10 +143,10 @@ def test_extract_evidence_invalid_type_defaults_to_context(mock_openai_client) -
     )
 
     provider = OpenAIProvider(api_key="test-key", model="m")
-    candidates = provider.extract_evidence_from_file("f.md", "test quote", "goal")
+    extraction = provider.extract_evidence_from_file("f.md", "test quote", "goal")
 
-    assert len(candidates) == 1
-    assert candidates[0].evidence_type == "context"
+    assert len(extraction.candidates) == 1
+    assert extraction.candidates[0].evidence_type == "context"
 
 
 def test_generate_structured(mock_openai_client) -> None:
@@ -143,9 +163,10 @@ def test_generate_structured(mock_openai_client) -> None:
     provider = OpenAIProvider(api_key="test-key", model="m")
     result = provider.generate_structured("test prompt", TestModel)
 
-    assert isinstance(result, TestModel)
-    assert result.name == "hello"
-    assert result.count == 42
+    assert isinstance(result.value, TestModel)
+    assert result.value.name == "hello"
+    assert result.value.count == 42
+    assert len(result.generations) == 1
 
 
 def test_generate_structured_retries_on_invalid_json(mock_openai_client) -> None:
@@ -162,5 +183,6 @@ def test_generate_structured_retries_on_invalid_json(mock_openai_client) -> None
     provider = OpenAIProvider(api_key="test-key", model="m", max_retries=1)
     result = provider.generate_structured("test", TestModel)
 
-    assert result.value == 7
+    assert result.value.value == 7
+    assert len(result.generations) == 2
     assert mock_openai_client.chat.completions.create.call_count == 2

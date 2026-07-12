@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from workpilot.evidence.extraction import EvidenceExtractor
-from workpilot.providers.base import EvidenceCandidate, EvidenceType
+from workpilot.providers.base import (
+    EvidenceCandidate,
+    EvidenceExtractionResult,
+    EvidenceType,
+)
 from workpilot.providers.stub import StubProvider
 from workpilot.workspace.tools import WorkspaceTools
 
@@ -83,16 +87,18 @@ def test_invalid_quote_is_discarded() -> None:
     workspace = WorkspaceTools(workspace_root=RICH_WORKSPACE)
 
     fake_provider = MagicMock()
-    fake_provider.extract_evidence_from_file.return_value = [
-        EvidenceCandidate(
-            evidence_id="",
-            source_file="meeting_notes.md",
-            quote="this text does not exist anywhere in the file",
-            start_line=1,
-            end_line=1,
-            evidence_type=EvidenceType.CONTEXT,
-        )
-    ]
+    fake_provider.extract_evidence_from_file.return_value = EvidenceExtractionResult(
+        candidates=[
+            EvidenceCandidate(
+                evidence_id="",
+                source_file="meeting_notes.md",
+                quote="this text does not exist anywhere in the file",
+                start_line=1,
+                end_line=1,
+                evidence_type=EvidenceType.CONTEXT,
+            )
+        ]
+    )
 
     extractor = EvidenceExtractor(
         provider=fake_provider,
@@ -113,16 +119,18 @@ def test_invalid_line_range_is_discarded() -> None:
     workspace = WorkspaceTools(workspace_root=RICH_WORKSPACE)
 
     fake_provider = MagicMock()
-    fake_provider.extract_evidence_from_file.return_value = [
-        EvidenceCandidate(
-            evidence_id="",
-            source_file="meeting_notes.md",
-            quote="支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案，否则下游开发将被阻塞。",
-            start_line=5,
-            end_line=3,
-            evidence_type=EvidenceType.RISK,
-        )
-    ]
+    fake_provider.extract_evidence_from_file.return_value = EvidenceExtractionResult(
+        candidates=[
+            EvidenceCandidate(
+                evidence_id="",
+                source_file="meeting_notes.md",
+                quote="支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案，否则下游开发将被阻塞。",
+                start_line=5,
+                end_line=3,
+                evidence_type=EvidenceType.RISK,
+            )
+        ]
+    )
 
     extractor = EvidenceExtractor(
         provider=fake_provider,
