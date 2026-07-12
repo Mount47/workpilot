@@ -3,7 +3,7 @@
 ## 基本信息
 
 - 日期：2026-07-12
-- 状态：实施中
+- 状态：已完成
 - 关联模块：Planning、Provider Routing、Runtime、Mission Contract、Trace
 
 ## 背景
@@ -127,3 +127,20 @@ schema_version=plan.v1
 - 未配置 planning Route 时行为与现有版本一致；
 - 完整回归和最小 Stub Eval 通过。
 
+## 实际结果
+
+- PlanDraft 和 PlanStepDraft 已实现 `extra=forbid`，模型不能注入 Goal 或执行状态；
+- ConstrainedLLMPlanner 只向模型暴露 Contract 允许的 ToolSpec；
+- RuntimePlanPolicy 已限制当前六个必要步骤、工具映射和依赖方向；
+- FallbackPlanner 已区分可降级错误与认证、预算等不可隐藏错误；
+- `planning` ModelRoute 已进入 Runtime，并记录 planner_decision 和版本化模型调用；
+- 未配置 planning Route 时原有确定性行为保持不变；
+- 完整回归为 97 passed、总体覆盖率约 89%；
+- 最小 Stub Eval 保持通过。
+
+## 遗留限制
+
+- 当前 Runtime 仍按固定代码顺序调用六个 Handler，模型不能真正增删步骤；
+- success_criteria 只是计划契约，尚未被执行器自动判定；
+- 尚未建立真实模型下 deterministic 与 LLM Planner 的对比评测；
+- 计划调整、跳过、取消、并行和检查点恢复尚未实现。

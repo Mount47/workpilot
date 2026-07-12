@@ -53,4 +53,4 @@ workpilot run \
   --output ./runs/routed-run
 ```
 
-示例按 Evidence 抽取、分析、修订、规划和语义复核配置不同模型档位。API Key 只从环境变量或 `.env` 读取，不应写入路由文件。
+示例按 Evidence 抽取、分析、修订、规划和语义复核配置不同模型档位。配置 `planning` Route 后，Runtime 会尝试受限 LLM Planner；非法计划或可降级 Provider 失败会回退 DeterministicPlanner。API Key 只从环境变量或 `.env` 读取，不应写入路由文件。
