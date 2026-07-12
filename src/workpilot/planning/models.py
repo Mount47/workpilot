@@ -41,6 +41,33 @@ class PlanStep(BaseModel):
     last_error_type: str | None = None
 
 
+class PlanStepDraft(BaseModel):
+    """Model-authored fields for one step; execution state is system-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str = Field(pattern=r"^[a-z][a-z0-9_-]+$")
+    objective: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    dependencies: list[str] = Field(default_factory=list)
+    expected_output: str = Field(min_length=1)
+    success_criteria: list[str] = Field(min_length=1)
+    evidence_required: bool = False
+
+    def to_plan_step(self) -> PlanStep:
+        """Create a fresh pending PlanStep without model-controlled state."""
+        return PlanStep(**self.model_dump())
+
+
+class PlanDraft(BaseModel):
+    """Restricted model response that cannot override goal or run identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    steps: list[PlanStepDraft] = Field(min_length=1)
+
+
 class Plan(BaseModel):
     """A complete plan that must be validated before execution."""
 

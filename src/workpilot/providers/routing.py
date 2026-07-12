@@ -176,6 +176,10 @@ class ModelRouter:
         self.on_event = on_event
         self.sleep = sleep
 
+    def has_route(self, task_type: TaskType) -> bool:
+        """Return whether a task has an explicit route."""
+        return task_type in self.routes
+
     def execute(
         self,
         task_type: TaskType,

@@ -15,11 +15,14 @@ from workpilot.evidence.extraction import EvidenceExtractor
 from workpilot.evidence.store import EvidenceStore
 from workpilot.memory import WorkingMemory
 from workpilot.planning import (
+    ConstrainedLLMPlanner,
     DeterministicPlanner,
+    FallbackPlanner,
     Plan,
     PlanExecutor,
     PlanStep,
     PlanValidator,
+    RuntimePlanPolicy,
     create_default_registry,
 )
 from workpilot.providers.base import (
@@ -116,6 +119,20 @@ class Runtime:
                 model_router,
                 TaskType.REVISION,
             )
+            if model_router.has_route(TaskType.PLANNING):
+                planning_provider = TaskRoutedProvider(
+                    model_router,
+                    TaskType.PLANNING,
+                )
+                self.planner = FallbackPlanner(
+                    primary=ConstrainedLLMPlanner(
+                        provider=planning_provider,
+                        registry=self.tool_registry,
+                    ),
+                    fallback=DeterministicPlanner(),
+                    validator=self.plan_validator,
+                    runtime_policy=RuntimePlanPolicy(),
+                )
         self.claim_builder = ClaimBuilder(provider=analysis_provider)
         self.revision_claim_builder = ClaimBuilder(provider=revision_provider)
         self.synthesizer = Synthesizer(provider=analysis_provider)
@@ -164,7 +181,12 @@ class Runtime:
 
     def _run_pipeline(self) -> None:
         with self._step("planning", state=RunState.PLANNING) as step_id:
-            self.plan = self.planner.create_plan(self.contract)
+            try:
+                self.plan = self.planner.create_plan(self.contract)
+            except Exception as exc:
+                self._record_planner_observability(step_id, error=exc)
+                raise
+            self._record_planner_observability(step_id)
             self.memory.set_plan(self.plan)
             self.trace.append(
                 event_type="plan_created",
@@ -569,6 +591,37 @@ class Runtime:
 
         router.before_attempt = before_attempt
         router.on_event = on_event
+
+    def _record_planner_observability(
+        self,
+        step_id: str,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        get_calls = getattr(self.planner, "get_model_calls", None)
+        if callable(get_calls):
+            for generation in get_calls():
+                self._observe_model_call(generation, step_id)
+
+        decision = getattr(self.planner, "last_decision", None)
+        if decision is None:
+            data: dict[str, Any] = {
+                "requested": "deterministic",
+                "selected": "deterministic",
+                "fallback_reason": None,
+            }
+        else:
+            data = decision.to_dict()
+        if error is not None and data["selected"] == "pending":
+            data["selected"] = "failed"
+            data["fallback_reason"] = self._error_type(error)
+        data["plan_id"] = self.plan.plan_id if self.plan is not None else None
+        self.trace.append(
+            event_type="planner_decision",
+            data=data,
+            step_id=step_id,
+            parent_step_id="run",
+        )
 
     @staticmethod
     def _error_type(exc: Exception) -> str:
