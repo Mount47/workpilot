@@ -12,7 +12,12 @@ from workpilot.providers.registry import (
     get_provider_descriptor,
 )
 from workpilot.providers.routing_config import load_model_routing_config
-from workpilot.evaluation import EvalRunner, load_eval_suite
+from workpilot.evaluation import (
+    EvalRunner,
+    PlannerEvalRunner,
+    load_eval_suite,
+    load_planner_eval_suite,
+)
 from workpilot.runtime.runner import Runtime
 
 app = typer.Typer(
@@ -166,6 +171,26 @@ def providers_list() -> None:
             f"  {name:<10} transport={descriptor.transport.value:<20} "
             f"model={model:<24} structured={structured}"
         )
+
+
+@app.command("planner-eval")
+def planner_evaluate(
+    suite: Path = typer.Option(..., help="Path to a Planner evaluation suite"),
+    output: Path = typer.Option(..., help="Output directory for evaluation results"),
+) -> None:
+    """Run an offline Planner safety and fallback evaluation suite."""
+    if not suite.exists():
+        typer.echo(f"Error: Planner evaluation suite '{suite}' does not exist.", err=True)
+        raise typer.Exit(1)
+    report = PlannerEvalRunner().run(load_planner_eval_suite(suite), output)
+    summary = report.summary
+    typer.echo(f"[WorkPilot] Planner evaluation completed: {report.suite_name}")
+    typer.echo(f"  Cases: {summary.total_cases}")
+    typer.echo(f"  Decision accuracy: {summary.decision_accuracy:.2%}")
+    typer.echo(f"  Plan validity: {summary.plan_validity_rate:.2%}")
+    typer.echo(f"  Fallback rate: {summary.fallback_rate:.2%}")
+    typer.echo(f"  Unsafe acceptance: {summary.unsafe_acceptance_rate:.2%}")
+    typer.echo(f"  Output: {(output / 'planner_eval_report.json').resolve()}")
 
 
 if __name__ == "__main__":

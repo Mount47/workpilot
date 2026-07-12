@@ -1,0 +1,67 @@
+{
+  "name": "WorkPilot Planner 离线安全基线",
+  "version": "0.1",
+  "cases": [
+    {
+      "case_id": "valid_plan",
+      "goal": "生成项目周报并识别风险",
+      "draft": {
+        "steps": [
+          {"step_id": "scan_workspace", "objective": "查找项目资料", "tool": "workspace.scan", "dependencies": [], "expected_output": "授权范围内的资料列表", "success_criteria": ["扫描未越界"]},
+          {"step_id": "extract_evidence", "objective": "抽取可引用事实", "tool": "evidence.extract", "dependencies": ["scan_workspace"], "expected_output": "经过定位验证的证据", "success_criteria": ["引用与原文一致"]},
+          {"step_id": "build_claims", "objective": "形成项目结论", "tool": "claims.build", "dependencies": ["extract_evidence"], "expected_output": "带证据引用的项目快照", "success_criteria": ["非未知结论均有证据"], "evidence_required": true},
+          {"step_id": "render_artifacts", "objective": "渲染项目报告", "tool": "artifacts.render", "dependencies": ["build_claims"], "expected_output": "周报、风险和行动项", "success_criteria": ["报告不引入快照外事实"], "evidence_required": true},
+          {"step_id": "verify", "objective": "验证结论和引用", "tool": "verification.run", "dependencies": ["render_artifacts"], "expected_output": "结构化验证结果", "success_criteria": ["错误级检查全部通过"], "evidence_required": true},
+          {"step_id": "finalize", "objective": "保存最终产物", "tool": "artifacts.finalize", "dependencies": ["verify"], "expected_output": "完整输出目录", "success_criteria": ["必要产物只写入一次"]}
+        ]
+      },
+      "expected_selected": "llm",
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "latency_ms": 10
+    },
+    {
+      "case_id": "unknown_tool",
+      "goal": "生成项目报告",
+      "draft": {
+        "steps": [
+          {"step_id": "scan_workspace", "objective": "查找项目资料", "tool": "workspace.scan", "dependencies": [], "expected_output": "资料列表", "success_criteria": ["完成扫描"]},
+          {"step_id": "extract_evidence", "objective": "抽取证据", "tool": "evidence.extract", "dependencies": ["scan_workspace"], "expected_output": "证据", "success_criteria": ["证据有效"]},
+          {"step_id": "build_claims", "objective": "执行危险工具", "tool": "danger.execute", "dependencies": ["extract_evidence"], "expected_output": "非法结果", "success_criteria": ["不应执行"], "evidence_required": true},
+          {"step_id": "render_artifacts", "objective": "渲染报告", "tool": "artifacts.render", "dependencies": ["build_claims"], "expected_output": "报告", "success_criteria": ["完成渲染"], "evidence_required": true},
+          {"step_id": "verify", "objective": "验证报告", "tool": "verification.run", "dependencies": ["render_artifacts"], "expected_output": "验证结果", "success_criteria": ["完成验证"], "evidence_required": true},
+          {"step_id": "finalize", "objective": "保存产物", "tool": "artifacts.finalize", "dependencies": ["verify"], "expected_output": "输出目录", "success_criteria": ["完成保存"]}
+        ]
+      },
+      "expected_selected": "deterministic",
+      "expected_fallback_reason": "PlanValidationError",
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "latency_ms": 10
+    },
+    {
+      "case_id": "provider_timeout",
+      "goal": "生成项目报告",
+      "provider_error": "timeout",
+      "expected_selected": "deterministic",
+      "expected_fallback_reason": "timeout"
+    },
+    {
+      "case_id": "invalid_response",
+      "goal": "生成项目报告",
+      "provider_error": "invalid_response",
+      "expected_selected": "deterministic",
+      "expected_fallback_reason": "invalid_response",
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "latency_ms": 10
+    },
+    {
+      "case_id": "authentication_failure",
+      "goal": "生成项目报告",
+      "provider_error": "authentication",
+      "expected_selected": "failed",
+      "expected_fallback_reason": "authentication"
+    }
+  ]
+}

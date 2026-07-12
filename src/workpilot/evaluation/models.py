@@ -3,7 +3,9 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from workpilot.planning import PlanDraft
 
 
 class EvalCase(BaseModel):
@@ -63,3 +65,78 @@ class EvaluationReport(BaseModel):
     provider: str
     summary: EvaluationSummary
     cases: list[EvalCaseResult]
+
+
+class PlannerEvalCase(BaseModel):
+    """One offline model-plan or Provider-failure contract case."""
+
+    case_id: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
+    goal: str = Field(min_length=1)
+    draft: PlanDraft | None = None
+    provider_error: Literal[
+        "rate_limit",
+        "timeout",
+        "network",
+        "server",
+        "authentication",
+        "invalid_response",
+    ] | None = None
+    expected_selected: Literal["llm", "deterministic", "failed"]
+    expected_fallback_reason: str | None = None
+    input_tokens: int = Field(default=100, ge=0)
+    output_tokens: int = Field(default=20, ge=0)
+    latency_ms: float = Field(default=10.0, ge=0.0)
+
+    @model_validator(mode="after")
+    def validate_input_source(self) -> "PlannerEvalCase":
+        if (self.draft is None) == (self.provider_error is None):
+            raise ValueError("exactly one of draft or provider_error is required")
+        return self
+
+
+class PlannerEvalSuite(BaseModel):
+    """Versioned offline Planner policy suite."""
+
+    name: str = Field(min_length=1)
+    version: str = Field(default="0.1", min_length=1)
+    cases: list[PlannerEvalCase] = Field(min_length=1)
+
+
+class PlannerEvalCaseResult(BaseModel):
+    """Planner decision and usage facts for one case."""
+
+    case_id: str
+    expected_selected: str
+    actual_selected: str
+    decision_correct: bool
+    plan_valid: bool
+    fallback_used: bool
+    unsafe_plan_accepted: bool
+    fallback_reason: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: float = 0.0
+
+
+class PlannerEvaluationSummary(BaseModel):
+    """Macro metrics for Planner safety and routing decisions."""
+
+    total_cases: int
+    decision_accuracy: float
+    plan_validity_rate: float
+    llm_acceptance_rate: float
+    fallback_rate: float
+    failure_rate: float
+    unsafe_acceptance_rate: float
+    average_input_tokens: float
+    average_output_tokens: float
+    average_latency_ms: float
+
+
+class PlannerEvaluationReport(BaseModel):
+    """Machine-readable offline Planner evaluation report."""
+
+    suite_name: str
+    suite_version: str
+    summary: PlannerEvaluationSummary
+    cases: list[PlannerEvalCaseResult]
