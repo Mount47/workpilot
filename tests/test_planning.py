@@ -216,6 +216,31 @@ def test_executor_records_handler_failure(tmp_path: Path) -> None:
     assert step.last_error_type == "RuntimeError"
 
 
+def test_executor_invokes_registry_bound_handler(tmp_path: Path) -> None:
+    from workpilot.planning import CallableToolHandler, ToolInput
+
+    contract = _contract(tmp_path)
+    registry = create_default_registry()
+    plan = DeterministicPlanner().create_plan(contract)
+    PlanValidator(registry).validate(plan, contract)
+    spec = registry.get("workspace.scan")
+    assert spec is not None
+    registry.bind(
+        CallableToolHandler(
+            spec=spec,
+            input_model=ToolInput,
+            callback=lambda *_: ["a.md"],
+            summarize=lambda files: {"file_count": len(files)},
+        )
+    )
+    executor = PlanExecutor(plan, registry)
+
+    result = executor.execute_registered_step("scan_workspace")
+
+    assert result.output == ["a.md"]
+    assert result.output_summary == {"file_count": 1}
+
+
 def test_runtime_revision_reenters_only_reentrant_plan_steps(
     basic_workspace: Path,
     tmp_path: Path,

@@ -48,6 +48,15 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert "step_started" in event_types
     assert "step_completed" in event_types
     assert "budget_summary" in event_types
+    assert "tool_call_started" in event_types
+    assert "tool_call_completed" in event_types
+    tool_events = [
+        event for event in trace["events"]
+        if event["event_type"] == "tool_call_completed"
+    ]
+    assert len(tool_events) == 6
+    assert all(event["data"]["tool_version"] == "1.0" for event in tool_events)
+    assert all("output" not in event["data"] for event in tool_events)
 
     # weekly_report.md should contain evidence references
     report = (tmp_output / "weekly_report.md").read_text()

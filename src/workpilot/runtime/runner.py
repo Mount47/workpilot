@@ -23,6 +23,8 @@ from workpilot.planning import (
     PlanStep,
     PlanValidator,
     RuntimePlanPolicy,
+    CallableToolHandler,
+    ToolInput,
     create_default_registry,
 )
 from workpilot.providers.base import (
@@ -226,13 +228,17 @@ class Runtime:
                 )
                 return files
 
+        self._bind_runtime_handler(
+            "workspace.scan",
+            scan_workspace,
+            summarize=lambda files: {"file_count": len(files)},
+        )
         files = self._execute_plan_step(
             plan_executor,
             "scan_workspace",
-            scan_workspace,
         )
 
-        def extract_evidence(_: PlanStep) -> None:
+        def extract_evidence(_: PlanStep) -> dict[str, int]:
             with self._step("retrieve.evidence") as step_id:
                 if self.model_router is None and not isinstance(self.provider, StubProvider):
                     self.budget.check_model_call_allowed()
@@ -256,11 +262,20 @@ class Runtime:
                     step_id=step_id,
                     parent_step_id="run",
                 )
+                return {
+                    "evidence_count": len(evidences),
+                    "discarded_count": len(extractor.get_discarded()),
+                    "provider_error_count": len(extractor.get_provider_errors()),
+                }
 
+        self._bind_runtime_handler(
+            "evidence.extract",
+            extract_evidence,
+            summarize=lambda output: dict(output),
+        )
         self._execute_plan_step(
             plan_executor,
             "extract_evidence",
-            extract_evidence,
         )
 
         citation_verifier = CitationVerifier(
@@ -277,7 +292,7 @@ class Runtime:
         for attempt in range(1, self.MAX_SYNTHESIS_ATTEMPTS + 1):
             allow_reentry = attempt > 1
 
-            def build_claims(_: PlanStep) -> None:
+            def build_claims(_: PlanStep) -> ProjectSnapshot:
                 claim_state = (
                     RunState.SYNTHESIZING if attempt == 1 else RunState.REVISING
                 )
@@ -316,11 +331,20 @@ class Runtime:
                         step_id=step_id,
                         parent_step_id="run",
                     )
+                    return self.project_snapshot
 
+            if attempt == 1:
+                self._bind_runtime_handler(
+                    "claims.build",
+                    build_claims,
+                    summarize=lambda snapshot: {
+                        "claim_count": len(snapshot.claims),
+                        "source_count": len(snapshot.source_ids),
+                    },
+                )
             self._execute_plan_step(
                 plan_executor,
                 "build_claims",
-                build_claims,
                 allow_reentry=allow_reentry,
             )
 
@@ -342,10 +366,18 @@ class Runtime:
                     )
                     return rendered
 
+            if attempt == 1:
+                self._bind_runtime_handler(
+                    "artifacts.render",
+                    render_artifacts,
+                    summarize=lambda rendered: {
+                        "artifact_names": sorted(rendered),
+                        "artifact_count": len(rendered),
+                    },
+                )
             artifacts = self._execute_plan_step(
                 plan_executor,
                 "render_artifacts",
-                render_artifacts,
                 allow_reentry=allow_reentry,
             )
 
@@ -376,10 +408,18 @@ class Runtime:
                     )
                     return results, current_errors
 
+            if attempt == 1:
+                self._bind_runtime_handler(
+                    "verification.run",
+                    verify,
+                    summarize=lambda output: {
+                        "check_count": len(output[0]),
+                        "error_count": len(output[1]),
+                    },
+                )
             verify_results, errors = self._execute_plan_step(
                 plan_executor,
                 "verify",
-                verify,
                 allow_reentry=allow_reentry,
             )
 
@@ -410,7 +450,12 @@ class Runtime:
                     list(artifacts.keys()) + ["verification_report.json"]
                 )
 
-        self._execute_plan_step(plan_executor, "finalize", finalize)
+        self._bind_runtime_handler(
+            "artifacts.finalize",
+            finalize,
+            summarize=lambda _: {"status": "persisted"},
+        )
+        self._execute_plan_step(plan_executor, "finalize")
         self.writer.write_json("plan.json", self.plan.model_dump(mode="json"))
         self.memory.record_artifacts(["plan.json"])
 
@@ -433,7 +478,6 @@ class Runtime:
         self,
         executor: PlanExecutor,
         step_id: str,
-        handler: Callable[[PlanStep], Any],
         *,
         allow_reentry: bool = False,
     ) -> Any:
@@ -449,14 +493,38 @@ class Runtime:
             },
             parent_step_id="run",
         )
+        spec = self.tool_registry.get(step.tool)
+        tool_started = monotonic()
+        self.trace.append(
+            event_type="tool_call_started",
+            data={
+                "plan_step_id": step_id,
+                "tool": step.tool,
+                "tool_version": spec.version if spec is not None else None,
+                "input_fields": sorted(step.inputs),
+                "attempt": next_attempt,
+            },
+            parent_step_id="run",
+        )
         try:
-            result = executor.execute_step(
+            result = executor.execute_registered_step(
                 step_id,
-                handler,
                 allow_reentry=allow_reentry,
             )
         except Exception as exc:
             error_type = self._error_type(exc)
+            self.trace.append(
+                event_type="tool_call_failed",
+                data={
+                    "plan_step_id": step_id,
+                    "tool": step.tool,
+                    "tool_version": spec.version if spec is not None else None,
+                    "attempt": step.attempts,
+                    "latency_ms": round((monotonic() - tool_started) * 1000, 3),
+                    "error_type": error_type,
+                },
+                parent_step_id="run",
+            )
             self.trace.append(
                 event_type="plan_step_failed",
                 data={
@@ -471,6 +539,19 @@ class Runtime:
             )
             raise
         self.trace.append(
+            event_type="tool_call_completed",
+            data={
+                "plan_step_id": step_id,
+                "tool": step.tool,
+                "tool_version": spec.version if spec is not None else None,
+                "attempt": step.attempts,
+                "latency_ms": round((monotonic() - tool_started) * 1000, 3),
+                "output_summary": result.output_summary,
+                "evidence_ids": result.evidence_ids,
+            },
+            parent_step_id="run",
+        )
+        self.trace.append(
             event_type="plan_step_completed",
             data={
                 "plan_id": executor.plan.plan_id,
@@ -480,7 +561,26 @@ class Runtime:
             },
             parent_step_id="run",
         )
-        return result
+        return result.output
+
+    def _bind_runtime_handler(
+        self,
+        tool_name: str,
+        callback: Callable[[PlanStep], Any],
+        *,
+        summarize: Callable[[Any], dict[str, Any]],
+    ) -> None:
+        spec = self.tool_registry.get(tool_name)
+        if spec is None:
+            raise ValueError(f"Cannot bind unregistered tool {tool_name}")
+        self.tool_registry.bind(
+            CallableToolHandler(
+                spec=spec,
+                input_model=ToolInput,
+                callback=lambda _input, step: callback(step),
+                summarize=summarize,
+            )
+        )
 
     @contextmanager
     def _step(

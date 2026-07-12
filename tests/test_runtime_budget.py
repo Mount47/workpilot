@@ -127,6 +127,14 @@ def test_runtime_token_budget_records_call_before_failure(
     trace = json.loads((output / "trace.json").read_text())
     event_types = [event["event_type"] for event in trace["events"]]
     assert "model_call_completed" in event_types
+    assert "tool_call_failed" in event_types
+    tool_failure = next(
+        event for event in trace["events"]
+        if event["event_type"] == "tool_call_failed"
+    )
+    assert tool_failure["data"]["tool"] == "evidence.extract"
+    assert tool_failure["data"]["error_type"] == "BudgetExceededError"
+    assert "output" not in tool_failure["data"]
     summary = next(
         event["data"]
         for event in trace["events"]

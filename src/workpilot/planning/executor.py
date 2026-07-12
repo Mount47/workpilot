@@ -5,6 +5,7 @@ from typing import Any
 
 from workpilot.planning.models import Plan, PlanStep, PlanStepStatus
 from workpilot.planning.registry import ToolRegistry
+from workpilot.planning.tools import ToolResult
 
 
 class PlanExecutor:
@@ -63,3 +64,19 @@ class PlanExecutor:
         else:
             step.status = PlanStepStatus.COMPLETED
             return result
+
+    def execute_registered_step(
+        self,
+        step_id: str,
+        *,
+        allow_reentry: bool = False,
+    ) -> ToolResult:
+        """Execute a PlanStep through its Registry-bound ToolHandler."""
+        result = self.execute_step(
+            step_id,
+            lambda step: self.registry.invoke(step.tool, step.inputs, step),
+            allow_reentry=allow_reentry,
+        )
+        if not isinstance(result, ToolResult):
+            raise TypeError("registered tool handler must return ToolResult")
+        return result
