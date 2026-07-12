@@ -19,6 +19,12 @@ from workpilot.planning.planner import (
 )
 from workpilot.planning.registry import ToolRegistry, create_default_registry
 from workpilot.planning.validator import PlanValidationError, PlanValidator
+from workpilot.planning.tools import (
+    CallableToolHandler,
+    ToolHandler,
+    ToolInput,
+    ToolResult,
+)
 
 __all__ = [
     "Plan",
@@ -38,4 +44,8 @@ __all__ = [
     "create_default_registry",
     "PlanValidationError",
     "PlanValidator",
+    "CallableToolHandler",
+    "ToolHandler",
+    "ToolInput",
+    "ToolResult",
 ]

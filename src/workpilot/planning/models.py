@@ -19,6 +19,7 @@ class ToolSpec(BaseModel):
 
     name: str = Field(pattern=r"^[a-z][a-z0-9_.-]+$")
     description: str = Field(min_length=1)
+    version: str = Field(default="1.0", pattern=r"^[0-9]+\.[0-9]+$")
     reentrant: bool = False
     evidence_required: bool = False
 

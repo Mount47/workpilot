@@ -3,6 +3,7 @@
 from workpilot.contracts import MissionContract
 from workpilot.planning.models import Plan
 from workpilot.planning.registry import ToolRegistry
+from pydantic import ValidationError
 
 
 class PlanValidationError(ValueError):
@@ -51,6 +52,14 @@ class PlanValidator:
                     f"step {step.step_id} requires evidence but tool {step.tool} "
                     "does not declare that contract"
                 )
+            else:
+                try:
+                    self.registry.validate_inputs(step.tool, step.inputs)
+                except (ValidationError, KeyError) as exc:
+                    errors.append(
+                        f"step {step.step_id} has invalid inputs for {step.tool}: "
+                        f"{type(exc).__name__}"
+                    )
             for dependency in step.dependencies:
                 if dependency not in known_ids:
                     errors.append(

@@ -53,7 +53,7 @@ def valid_plan_data() -> dict[str, Any]:
                 "step_id": step_id,
                 "objective": f"Execute {step_id} for the mission.",
                 "tool": tool,
-                "inputs": {"goal_scope": "current mission"},
+                "inputs": {},
                 "dependencies": dependencies,
                 "expected_output": f"Validated output from {step_id}.",
                 "success_criteria": [f"{step_id} completes safely."],

@@ -232,6 +232,8 @@ class ConstrainedLLMPlanner:
                 "name": spec.name,
                 "description": spec.description,
                 "evidence_required": spec.evidence_required,
+                "version": spec.version,
+                "input_schema": self.registry.input_schema(spec.name),
             }
             for spec in self.registry.list_all()
             if contract.is_tool_allowed(spec.name)
