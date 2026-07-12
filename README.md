@@ -42,3 +42,15 @@ workpilot providers
 ```
 
 当前注册 Stub、OpenAI、Claude、DeepSeek、Qwen/百炼、GLM、Gemini，以及任意 OpenAI-compatible 企业网关。
+
+## 分层模型路由
+
+```bash
+workpilot run \
+  --workspace ./tests/fixtures/workspaces/basic_project \
+  --goal "生成本周项目周报" \
+  --route-config ./examples/model_routes.json \
+  --output ./runs/routed-run
+```
+
+示例按 Evidence 抽取、分析、修订、规划和语义复核配置不同模型档位。API Key 只从环境变量或 `.env` 读取，不应写入路由文件。
