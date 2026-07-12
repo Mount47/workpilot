@@ -35,6 +35,14 @@ workpilot eval \
   --output ./runs/eval-baseline
 ```
 
+Planner 安全与降级策略可以离线评测：
+
+```bash
+workpilot planner-eval \
+  --suite ./evals/Planner最小基线.json \
+  --output ./runs/planner-eval-baseline
+```
+
 ## 模型供应商
 
 ```bash
