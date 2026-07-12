@@ -9,6 +9,8 @@ from workpilot.providers.routing import (
     ModelRouter,
     ModelTarget,
     ModelTier,
+    PromptContract,
+    TaskRoutedProvider,
     TaskType,
 )
 from workpilot.providers.specs import (
@@ -32,5 +34,7 @@ __all__ = [
     "ModelRouter",
     "ModelTarget",
     "ModelTier",
+    "PromptContract",
+    "TaskRoutedProvider",
     "TaskType",
 ]

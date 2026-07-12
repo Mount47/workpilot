@@ -8,6 +8,11 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, Field, model_validator
 
 from workpilot.providers.base import LLMProvider
+from workpilot.providers.base import (
+    EvidenceExtractionResult,
+    GenerationResult,
+    StructuredGenerationResult,
+)
 from workpilot.providers.errors import ProviderCallError
 from workpilot.providers.registry import get_provider, get_provider_descriptor
 from workpilot.providers.retry import RetryEvent, RetryPolicy
@@ -113,6 +118,37 @@ class RoutedResult(Generic[T]):
     task_type: TaskType
     target: ModelTarget
     target_index: int
+
+
+class PromptContract(BaseModel):
+    """Version identifiers recorded for a model-backed task."""
+
+    prompt_version: str = Field(min_length=1)
+    schema_version: str = Field(min_length=1)
+
+
+DEFAULT_PROMPT_CONTRACTS: dict[TaskType, PromptContract] = {
+    TaskType.EVIDENCE_EXTRACTION: PromptContract(
+        prompt_version="evidence_extraction.v1",
+        schema_version="evidence_candidate.v1",
+    ),
+    TaskType.PLANNING: PromptContract(
+        prompt_version="planner.v1",
+        schema_version="plan.v1",
+    ),
+    TaskType.ANALYSIS: PromptContract(
+        prompt_version="claim_builder.v1",
+        schema_version="claim_draft.v1",
+    ),
+    TaskType.REVISION: PromptContract(
+        prompt_version="claim_revision.v1",
+        schema_version="claim_draft.v1",
+    ),
+    TaskType.SEMANTIC_VERIFICATION: PromptContract(
+        prompt_version="semantic_verifier.v1",
+        schema_version="verification_result.v1",
+    ),
+}
 
 
 ProviderFactory = Callable[[ModelTarget], LLMProvider]
@@ -258,3 +294,104 @@ class ModelRouter:
         if self.on_event is not None:
             self.on_event(event)
 
+
+class TaskRoutedProvider(LLMProvider):
+    """LLMProvider view bound to one TaskType and PromptContract."""
+
+    def __init__(
+        self,
+        router: ModelRouter,
+        task_type: TaskType,
+        contract: PromptContract | None = None,
+    ) -> None:
+        self.router = router
+        self.task_type = task_type
+        self.contract = contract or DEFAULT_PROMPT_CONTRACTS[task_type]
+
+    def generate_text(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+    ) -> GenerationResult:
+        routed = self.router.execute(
+            self.task_type,
+            lambda provider: provider.generate_text(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+            ),
+        )
+        return self._annotate_generation(routed.value, routed, schema_name=None)
+
+    def generate_structured(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+    ) -> StructuredGenerationResult:
+        routed = self.router.execute(
+            self.task_type,
+            lambda provider: provider.generate_structured(
+                prompt=prompt,
+                response_model=response_model,
+                system_prompt=system_prompt,
+                temperature=temperature,
+            ),
+        )
+        return StructuredGenerationResult(
+            value=routed.value.value,
+            generations=tuple(
+                self._annotate_generation(
+                    generation,
+                    routed,
+                    schema_name=response_model.__name__,
+                )
+                for generation in routed.value.generations
+            ),
+        )
+
+    def extract_evidence_from_file(
+        self,
+        file_path: str,
+        content: str,
+        goal: str,
+    ) -> EvidenceExtractionResult:
+        routed = self.router.execute(
+            self.task_type,
+            lambda provider: provider.extract_evidence_from_file(
+                file_path=file_path,
+                content=content,
+                goal=goal,
+            ),
+        )
+        return EvidenceExtractionResult(
+            candidates=routed.value.candidates,
+            generations=tuple(
+                self._annotate_generation(
+                    generation,
+                    routed,
+                    schema_name="EvidenceCandidate[]",
+                )
+                for generation in routed.value.generations
+            ),
+            error_type=routed.value.error_type,
+        )
+
+    def _annotate_generation(
+        self,
+        generation: GenerationResult,
+        routed: RoutedResult[Any],
+        *,
+        schema_name: str | None,
+    ) -> GenerationResult:
+        return generation.model_copy(
+            update={
+                "task_type": self.task_type.value,
+                "prompt_version": self.contract.prompt_version,
+                "schema_name": schema_name,
+                "schema_version": self.contract.schema_version,
+                "route_target_index": routed.target_index,
+            }
+        )

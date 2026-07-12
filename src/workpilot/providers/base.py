@@ -43,6 +43,11 @@ class GenerationResult(BaseModel):
     request_id: str | None = None
     finish_reason: str | None = None
     estimated_cost: float | None = None
+    task_type: str | None = None
+    prompt_version: str | None = None
+    schema_name: str | None = None
+    schema_version: str | None = None
+    route_target_index: int | None = None
 
     @property
     def total_tokens(self) -> int:

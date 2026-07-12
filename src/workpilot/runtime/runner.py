@@ -2,6 +2,7 @@
 
 import uuid
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from time import monotonic
 from typing import Any, Callable, Iterator
@@ -27,6 +28,12 @@ from workpilot.providers.base import (
     ProviderResponseError,
 )
 from workpilot.providers.stub import StubProvider
+from workpilot.providers.routing import (
+    ModelRouter,
+    RoutingEvent,
+    TaskRoutedProvider,
+    TaskType,
+)
 from workpilot.runtime import Run, RunState
 from workpilot.runtime.budget import ExecutionBudget
 from workpilot.synthesis.synthesizer import Synthesizer
@@ -47,6 +54,7 @@ class Runtime:
         goal: str,
         output_dir: Path,
         provider: LLMProvider,
+        model_router: ModelRouter | None = None,
         max_steps: int = 30,
         time_budget_seconds: int = 300,
         token_budget: int = 100_000,
@@ -76,9 +84,8 @@ class Runtime:
         # Compatibility alias while modules migrate to RunContext reads.
         self.evidence_store = self.memory.evidence_store
         self.trace = TraceJournal(run_id=self.run_id)
+        self._active_step_id: str | None = None
         self.workspace = WorkspaceTools(workspace_root=self.contract.workspace_root)
-        self.claim_builder = ClaimBuilder(provider=provider)
-        self.synthesizer = Synthesizer(provider=provider)
         self.tool_registry = create_default_registry()
         self.planner = DeterministicPlanner()
         self.plan_validator = PlanValidator(self.tool_registry)
@@ -90,6 +97,28 @@ class Runtime:
             token_budget=self.contract.token_budget,
             time_budget_seconds=self.contract.time_budget_seconds,
         )
+        self.model_router = model_router
+        if model_router is None:
+            self.evidence_provider = provider
+            analysis_provider = provider
+            revision_provider = provider
+        else:
+            self._attach_model_router(model_router)
+            self.evidence_provider = TaskRoutedProvider(
+                model_router,
+                TaskType.EVIDENCE_EXTRACTION,
+            )
+            analysis_provider = TaskRoutedProvider(
+                model_router,
+                TaskType.ANALYSIS,
+            )
+            revision_provider = TaskRoutedProvider(
+                model_router,
+                TaskType.REVISION,
+            )
+        self.claim_builder = ClaimBuilder(provider=analysis_provider)
+        self.revision_claim_builder = ClaimBuilder(provider=revision_provider)
+        self.synthesizer = Synthesizer(provider=analysis_provider)
 
     def execute(self) -> Run:
         """Run the full pipeline and always persist its observable trace."""
@@ -183,10 +212,10 @@ class Runtime:
 
         def extract_evidence(_: PlanStep) -> None:
             with self._step("retrieve.evidence") as step_id:
-                if not isinstance(self.provider, StubProvider):
+                if self.model_router is None and not isinstance(self.provider, StubProvider):
                     self.budget.check_model_call_allowed()
                 extractor = EvidenceExtractor(
-                    provider=self.provider,
+                    provider=self.evidence_provider,
                     workspace=self.workspace,
                     goal=self.contract.goal,
                     on_model_call=lambda call: self._observe_model_call(call, step_id),
@@ -234,10 +263,15 @@ class Runtime:
                     "synthesize.claims" if attempt == 1 else "revise.claims"
                 )
                 with self._step(step_name, state=claim_state) as step_id:
-                    if not isinstance(self.provider, StubProvider):
+                    if self.model_router is None and not isinstance(self.provider, StubProvider):
                         self.budget.check_model_call_allowed()
+                    builder = (
+                        self.claim_builder
+                        if attempt == 1
+                        else self.revision_claim_builder
+                    )
                     try:
-                        self.project_snapshot = self.claim_builder.build(
+                        self.project_snapshot = builder.build(
                             project_id=self.contract.workspace_root.name,
                             snapshot_id=f"{self.run_id}-attempt-{attempt}",
                             goal=self.contract.goal,
@@ -248,7 +282,7 @@ class Runtime:
                         for generation in exc.generations:
                             self._observe_model_call(generation, step_id)
                         raise
-                    for generation in self.claim_builder.get_model_calls():
+                    for generation in builder.get_model_calls():
                         self._observe_model_call(generation, step_id)
                     self.memory.set_project_snapshot(self.project_snapshot)
                     self.trace.append(
@@ -440,6 +474,8 @@ class Runtime:
         self.memory.start_step(step_id, name, sequence)
         self.memory.update_budget(self.budget.snapshot())
         started = monotonic()
+        previous_active_step = self._active_step_id
+        self._active_step_id = step_id
         self.trace.append(
             event_type="step_started",
             data={"step_name": name, "step_sequence": sequence},
@@ -477,6 +513,8 @@ class Runtime:
                 step_id=step_id,
                 parent_step_id="run",
             )
+        finally:
+            self._active_step_id = previous_active_step
 
     def _observe_model_call(self, generation: GenerationResult, step_id: str) -> None:
         self.trace.append(
@@ -491,6 +529,11 @@ class Runtime:
                 "request_id": generation.request_id,
                 "finish_reason": generation.finish_reason,
                 "estimated_cost": generation.estimated_cost,
+                "task_type": generation.task_type,
+                "prompt_version": generation.prompt_version,
+                "schema_name": generation.schema_name,
+                "schema_version": generation.schema_version,
+                "route_target_index": generation.route_target_index,
             },
             step_id=step_id,
             parent_step_id="run",
@@ -502,6 +545,30 @@ class Runtime:
             )
         finally:
             self.memory.update_budget(self.budget.snapshot())
+
+    def _attach_model_router(self, router: ModelRouter) -> None:
+        previous_before_attempt = router.before_attempt
+        previous_on_event = router.on_event
+
+        def before_attempt(attempt: int) -> None:
+            if previous_before_attempt is not None:
+                previous_before_attempt(attempt)
+            self.budget.check_model_call_allowed()
+
+        def on_event(event: RoutingEvent) -> None:
+            if previous_on_event is not None:
+                previous_on_event(event)
+            event_data = asdict(event)
+            event_type = event_data.pop("event_type")
+            self.trace.append(
+                event_type=event_type,
+                data=event_data,
+                step_id=self._active_step_id,
+                parent_step_id="run",
+            )
+
+        router.before_attempt = before_attempt
+        router.on_event = on_event
 
     @staticmethod
     def _error_type(exc: Exception) -> str:
