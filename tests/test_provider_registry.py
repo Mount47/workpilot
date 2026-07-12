@@ -41,6 +41,12 @@ def test_provider_descriptors_expose_transport_and_adapter_capabilities() -> Non
         assert descriptor.capabilities.structured_output_mode == "validated_json"
 
 
+def test_cost_quality_defaults_use_current_stable_model_ids() -> None:
+    assert get_provider_descriptor("openai").default_model == "gpt-5.4-mini"
+    assert get_provider_descriptor("claude").default_model == "claude-sonnet-5"
+    assert get_provider_descriptor("deepseek").default_model == "deepseek-v4-pro"
+
+
 def test_gemini_uses_official_openai_compatibility_endpoint() -> None:
     with patch("workpilot.providers.openai_provider.OpenAI") as client_constructor:
         provider = get_provider("gemini", api_key="gemini-test")

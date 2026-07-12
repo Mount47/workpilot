@@ -11,6 +11,7 @@ from workpilot.providers.registry import (
     get_provider,
     get_provider_descriptor,
 )
+from workpilot.providers.routing_config import load_model_routing_config
 from workpilot.evaluation import EvalRunner, load_eval_suite
 from workpilot.runtime.runner import Runtime
 
@@ -32,10 +33,18 @@ def run(
     max_steps: int = typer.Option(30, help="Maximum execution steps"),
     time_budget_seconds: int = typer.Option(300, help="Time budget in seconds"),
     token_budget: int = typer.Option(100_000, help="Total model token budget"),
+    route_config: Optional[Path] = typer.Option(
+        None,
+        "--route-config",
+        help="JSON model routing configuration",
+    ),
 ) -> None:
     """Execute a mission on a workspace."""
     if not workspace.exists():
         typer.echo(f"Error: workspace '{workspace}' does not exist.", err=True)
+        raise typer.Exit(1)
+    if route_config is not None and not route_config.exists():
+        typer.echo(f"Error: route config '{route_config}' does not exist.", err=True)
         raise typer.Exit(1)
 
     provider_kwargs: dict = {}
@@ -45,11 +54,19 @@ def run(
         provider_kwargs["base_url"] = base_url
 
     llm_provider = get_provider(provider, **provider_kwargs)
+    model_router = None
+    if route_config is not None:
+        try:
+            model_router = load_model_routing_config(route_config).build_router()
+        except (ValueError, json.JSONDecodeError) as exc:
+            typer.echo(f"Error: invalid route config: {exc}", err=True)
+            raise typer.Exit(1) from exc
     runtime = Runtime(
         workspace_root=workspace,
         goal=goal,
         output_dir=output,
         provider=llm_provider,
+        model_router=model_router,
         max_steps=max_steps,
         time_budget_seconds=time_budget_seconds,
         token_budget=token_budget,
@@ -59,6 +76,8 @@ def run(
     typer.echo(f"  Workspace: {workspace.resolve()}")
     typer.echo(f"  Goal: {goal}")
     typer.echo(f"  Provider: {provider}")
+    if route_config is not None:
+        typer.echo(f"  Route config: {route_config.resolve()}")
     typer.echo()
 
     result = runtime.execute()

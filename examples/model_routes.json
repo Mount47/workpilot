@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "retry_policy": {
+    "max_attempts": 3,
+    "base_delay_seconds": 0.25,
+    "max_delay_seconds": 2.0
+  },
+  "routes": [
+    {
+      "task_type": "evidence_extraction",
+      "targets": [
+        {"provider": "deepseek", "model": "deepseek-v4-flash", "tier": "economy"},
+        {"provider": "openai", "model": "gpt-5.4-nano", "tier": "economy"}
+      ],
+      "minimum_tier": "economy",
+      "requirements": {"structured_output": true},
+      "allow_failover": true
+    },
+    {
+      "task_type": "analysis",
+      "targets": [
+        {"provider": "deepseek", "model": "deepseek-v4-pro", "tier": "balanced"},
+        {"provider": "openai", "model": "gpt-5.4-mini", "tier": "balanced"}
+      ],
+      "minimum_tier": "balanced",
+      "requirements": {"structured_output": true},
+      "allow_failover": true
+    },
+    {
+      "task_type": "revision",
+      "targets": [
+        {"provider": "openai", "model": "gpt-5.4-mini", "tier": "balanced"},
+        {"provider": "claude", "model": "claude-sonnet-5", "tier": "premium"}
+      ],
+      "minimum_tier": "balanced",
+      "requirements": {"structured_output": true},
+      "allow_failover": true
+    },
+    {
+      "task_type": "planning",
+      "targets": [
+        {"provider": "openai", "model": "gpt-5.4-mini", "tier": "balanced"},
+        {"provider": "claude", "model": "claude-sonnet-5", "tier": "premium"}
+      ],
+      "minimum_tier": "balanced",
+      "requirements": {"structured_output": true},
+      "allow_failover": true
+    },
+    {
+      "task_type": "semantic_verification",
+      "targets": [
+        {"provider": "claude", "model": "claude-sonnet-5", "tier": "premium"},
+        {"provider": "openai", "model": "gpt-5.4", "tier": "premium"}
+      ],
+      "minimum_tier": "premium",
+      "requirements": {"structured_output": true},
+      "allow_failover": true
+    }
+  ]
+}
