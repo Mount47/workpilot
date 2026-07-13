@@ -52,6 +52,9 @@ class PlanStepMemory(BaseModel):
     status: str
     attempts: int
     last_error_type: str | None
+    success_rule_ids: list[str]
+    success_criteria_passed: bool | None
+    failed_success_rule_ids: list[str]
 
 
 class PlanMemory(BaseModel):
@@ -221,6 +224,21 @@ class WorkingMemory:
                         status=step.status.value,
                         attempts=step.attempts,
                         last_error_type=step.last_error_type,
+                        success_rule_ids=list(step.success_rule_ids),
+                        success_criteria_passed=(
+                            step.success_evaluation.passed
+                            if step.success_evaluation is not None
+                            else None
+                        ),
+                        failed_success_rule_ids=(
+                            [
+                                check.rule_id
+                                for check in step.success_evaluation.checks
+                                if not check.passed
+                            ]
+                            if step.success_evaluation is not None
+                            else []
+                        ),
                     )
                     for step in self._plan.steps
                 ],

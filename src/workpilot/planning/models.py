@@ -16,6 +16,21 @@ class PlanStepStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class SuccessRuleCheck(BaseModel):
+    """One deterministic, safe success-rule result."""
+
+    rule_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]+$")
+    passed: bool
+    message: str = Field(min_length=1)
+
+
+class SuccessCriteriaEvaluation(BaseModel):
+    """Aggregate result for the system-owned rules on one PlanStep attempt."""
+
+    passed: bool
+    checks: list[SuccessRuleCheck] = Field(min_length=1)
+
+
 class ToolSpec(BaseModel):
     """A tool capability that a Plan is allowed to reference."""
 
@@ -24,6 +39,10 @@ class ToolSpec(BaseModel):
     version: str = Field(default="1.0", pattern=r"^[0-9]+\.[0-9]+$")
     reentrant: bool = False
     evidence_required: bool = False
+    success_rule_ids: list[str] = Field(
+        default_factory=lambda: ["tool_result.completed"],
+        min_length=1,
+    )
 
 
 class PlanStep(BaseModel):
@@ -38,10 +57,15 @@ class PlanStep(BaseModel):
     dependencies: list[str] = Field(default_factory=list)
     expected_output: str = Field(min_length=1)
     success_criteria: list[str] = Field(min_length=1)
+    success_rule_ids: list[str] = Field(
+        default_factory=lambda: ["tool_result.completed"],
+        min_length=1,
+    )
     evidence_required: bool = False
     status: PlanStepStatus = PlanStepStatus.PENDING
     attempts: int = Field(default=0, ge=0)
     last_error_type: str | None = None
+    success_evaluation: SuccessCriteriaEvaluation | None = None
 
 
 class PlanStepDraft(BaseModel):
@@ -58,9 +82,16 @@ class PlanStepDraft(BaseModel):
     success_criteria: list[str] = Field(min_length=1)
     evidence_required: bool = False
 
-    def to_plan_step(self) -> PlanStep:
+    def to_plan_step(
+        self,
+        *,
+        success_rule_ids: list[str] | None = None,
+    ) -> PlanStep:
         """Create a fresh pending PlanStep without model-controlled state."""
-        return PlanStep(**self.model_dump())
+        return PlanStep(
+            **self.model_dump(),
+            success_rule_ids=success_rule_ids or ["tool_result.completed"],
+        )
 
 
 class PlanDraft(BaseModel):

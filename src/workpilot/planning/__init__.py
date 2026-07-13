@@ -7,6 +7,8 @@ from workpilot.planning.models import (
     PlanDraft,
     PlanStepDraft,
     PlanStepStatus,
+    SuccessCriteriaEvaluation,
+    SuccessRuleCheck,
     ToolSpec,
 )
 from workpilot.planning.planner import (
@@ -25,6 +27,12 @@ from workpilot.planning.scheduler import (
     StepResultStore,
 )
 from workpilot.planning.validator import PlanValidationError, PlanValidator
+from workpilot.planning.success import (
+    SuccessCriteriaError,
+    SuccessRule,
+    SuccessRuleRegistry,
+    create_default_success_rule_registry,
+)
 from workpilot.planning.tools import (
     CallableToolHandler,
     ToolHandler,
@@ -38,6 +46,8 @@ __all__ = [
     "PlanDraft",
     "PlanStepDraft",
     "PlanStepStatus",
+    "SuccessCriteriaEvaluation",
+    "SuccessRuleCheck",
     "ToolSpec",
     "PlanExecutor",
     "DeterministicPlanner",
@@ -58,4 +68,8 @@ __all__ = [
     "SchedulerRunResult",
     "SerialDAGScheduler",
     "StepResultStore",
+    "SuccessCriteriaError",
+    "SuccessRule",
+    "SuccessRuleRegistry",
+    "create_default_success_rule_registry",
 ]

@@ -6,6 +6,7 @@ from typing import Any
 from workpilot.planning.models import Plan, PlanStep, PlanStepStatus
 from workpilot.planning.registry import ToolRegistry
 from workpilot.planning.tools import ToolResult
+from workpilot.planning.success import SuccessCriteriaError
 
 
 class PlanExecutor:
@@ -50,6 +51,7 @@ class PlanExecutor:
         step.status = PlanStepStatus.RUNNING
         step.attempts += 1
         step.last_error_type = None
+        step.success_evaluation = None
         try:
             result = handler(step)
         except Exception as exc:
@@ -76,6 +78,10 @@ class PlanExecutor:
             result = self.registry.invoke(step.tool, step.inputs, step)
             if not isinstance(result, ToolResult):
                 raise TypeError("registered tool handler must return ToolResult")
+            evaluation = self.registry.evaluate_success(step, result)
+            step.success_evaluation = evaluation
+            if not evaluation.passed:
+                raise SuccessCriteriaError(evaluation)
             return result
 
         result = self.execute_step(

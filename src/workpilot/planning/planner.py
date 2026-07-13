@@ -6,6 +6,7 @@ from typing import Protocol
 from workpilot.contracts import MissionContract
 from workpilot.planning.models import Plan, PlanDraft, PlanStep
 from workpilot.planning.registry import ToolRegistry
+from workpilot.planning.success import DEFAULT_TOOL_SUCCESS_RULE_IDS
 from workpilot.planning.validator import PlanValidationError, PlanValidator
 from workpilot.providers.base import (
     GenerationResult,
@@ -40,6 +41,7 @@ You must include every required step exactly once and preserve its required tool
 Dependencies may only point to earlier required steps and must include the required dependency.
 Never invent tools, skip evidence verification, or add execution state fields.
 Make objectives, inputs, expected outputs, and success criteria specific to the mission.
+Success rule IDs are system-owned and must not appear in your response.
 """
 
 
@@ -144,6 +146,7 @@ class DeterministicPlanner:
                     tool="workspace.scan",
                     expected_output="A bounded list of workspace source paths.",
                     success_criteria=["Workspace scan completes without boundary violation."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["workspace.scan"],
                 ),
                 PlanStep(
                     step_id="extract_evidence",
@@ -152,6 +155,7 @@ class DeterministicPlanner:
                     dependencies=["scan_workspace"],
                     expected_output="Validated Evidence records or an explicit empty result.",
                     success_criteria=["Every Evidence quote matches its source locator."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["evidence.extract"],
                 ),
                 PlanStep(
                     step_id="build_claims",
@@ -160,6 +164,7 @@ class DeterministicPlanner:
                     dependencies=["extract_evidence"],
                     expected_output="A ProjectSnapshot containing structured Claims.",
                     success_criteria=["Every non-unknown Claim references Evidence."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["claims.build"],
                     evidence_required=True,
                 ),
                 PlanStep(
@@ -169,6 +174,7 @@ class DeterministicPlanner:
                     dependencies=["build_claims"],
                     expected_output="Markdown and structured project artifacts.",
                     success_criteria=["Artifacts introduce no facts outside the Snapshot."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["artifacts.render"],
                     evidence_required=True,
                 ),
                 PlanStep(
@@ -178,6 +184,7 @@ class DeterministicPlanner:
                     dependencies=["render_artifacts"],
                     expected_output="Structured verification results.",
                     success_criteria=["All error-severity checks pass or trigger revision."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["verification.run"],
                     evidence_required=True,
                 ),
                 PlanStep(
@@ -187,6 +194,7 @@ class DeterministicPlanner:
                     dependencies=["verify"],
                     expected_output="A complete run output directory.",
                     success_criteria=["Required artifacts are written exactly once."],
+                    success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["artifacts.finalize"],
                 ),
             ],
         )
@@ -220,7 +228,16 @@ class ConstrainedLLMPlanner:
             plan_id=f"plan_{contract.run_id}",
             goal=contract.goal,
             created_by="llm",
-            steps=[step.to_plan_step() for step in response.value.steps],
+            steps=[
+                step.to_plan_step(
+                    success_rule_ids=(
+                        self.registry.get(step.tool).success_rule_ids
+                        if self.registry.get(step.tool) is not None
+                        else ["tool_result.completed"]
+                    )
+                )
+                for step in response.value.steps
+            ],
         )
 
     def get_model_calls(self) -> list[GenerationResult]:
@@ -234,6 +251,7 @@ class ConstrainedLLMPlanner:
                 "evidence_required": spec.evidence_required,
                 "version": spec.version,
                 "input_schema": self.registry.input_schema(spec.name),
+                "system_success_rule_ids": spec.success_rule_ids,
             }
             for spec in self.registry.list_all()
             if contract.is_tool_allowed(spec.name)

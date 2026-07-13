@@ -71,6 +71,10 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert len(tool_events) == 6
     assert all(event["data"]["tool_version"] == "1.0" for event in tool_events)
     assert all("output" not in event["data"] for event in tool_events)
+    assert all(
+        event["data"]["success_evaluation"]["passed"] is True
+        for event in tool_events
+    )
 
     # weekly_report.md should contain evidence references
     report = (tmp_output / "weekly_report.md").read_text()
@@ -109,6 +113,10 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert "weekly_report.md" in context["artifact_names"]
     assert context["plan"]["validated"] is True
     assert all(step["status"] == "completed" for step in context["plan"]["steps"])
+    assert all(
+        step["success_criteria_passed"] is True
+        for step in context["plan"]["steps"]
+    )
 
     plan = json.loads((tmp_output / "plan.json").read_text())
     assert plan["validated"] is True

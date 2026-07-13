@@ -176,6 +176,11 @@ class SerialDAGScheduler:
                         step_id=step.step_id,
                         output_summary=result.output_summary,
                         evidence_ids=result.evidence_ids,
+                        success_evaluation=(
+                            step.success_evaluation.model_dump(mode="json")
+                            if step.success_evaluation is not None
+                            else None
+                        ),
                     )
                 continue
 

@@ -5,16 +5,25 @@ from typing import Any
 from pydantic import BaseModel
 
 from workpilot.planning.models import ToolSpec
+from workpilot.planning.success import (
+    DEFAULT_TOOL_SUCCESS_RULE_IDS,
+    SuccessRuleRegistry,
+    create_default_success_rule_registry,
+)
 from workpilot.planning.tools import ToolHandler, ToolInput, ToolResult
 
 
 class ToolRegistry:
     """Store immutable tool specifications used for plan validation."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        success_rules: SuccessRuleRegistry | None = None,
+    ) -> None:
         self._specs: dict[str, ToolSpec] = {}
         self._input_models: dict[str, type[BaseModel]] = {}
         self._handlers: dict[str, ToolHandler] = {}
+        self.success_rules = success_rules or create_default_success_rule_registry()
 
     def register(
         self,
@@ -23,6 +32,7 @@ class ToolRegistry:
     ) -> None:
         if spec.name in self._specs:
             raise ValueError(f"Tool {spec.name} is already registered")
+        self.success_rules.require_known(spec.success_rule_ids)
         self._specs[spec.name] = spec
         self._input_models[spec.name] = input_model
 
@@ -67,6 +77,10 @@ class ToolRegistry:
         validated = self.validate_inputs(name, inputs)
         return handler.execute(validated, step)
 
+    def evaluate_success(self, step, result: ToolResult):
+        """Evaluate the trusted success rules assigned to a PlanStep."""
+        return self.success_rules.evaluate(step, result)
+
 
 def create_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
@@ -74,32 +88,38 @@ def create_default_registry() -> ToolRegistry:
         ToolSpec(
             name="workspace.scan",
             description="List sources inside the authorized workspace.",
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["workspace.scan"],
         ),
         ToolSpec(
             name="evidence.extract",
             description="Extract and validate citable evidence from sources.",
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["evidence.extract"],
         ),
         ToolSpec(
             name="claims.build",
             description="Build structured project claims from evidence.",
             reentrant=True,
             evidence_required=True,
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["claims.build"],
         ),
         ToolSpec(
             name="artifacts.render",
             description="Render artifacts from the current project snapshot.",
             reentrant=True,
             evidence_required=True,
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["artifacts.render"],
         ),
         ToolSpec(
             name="verification.run",
             description="Verify claim support and artifact citations.",
             reentrant=True,
             evidence_required=True,
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["verification.run"],
         ),
         ToolSpec(
             name="artifacts.finalize",
             description="Persist final artifacts and verification results.",
+            success_rule_ids=DEFAULT_TOOL_SUCCESS_RULE_IDS["artifacts.finalize"],
         ),
     ]:
         registry.register(spec)

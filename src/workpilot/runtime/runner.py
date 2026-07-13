@@ -549,6 +549,11 @@ class Runtime:
             )
         except Exception as exc:
             error_type = self._error_type(exc)
+            success_evaluation = (
+                step.success_evaluation.model_dump(mode="json")
+                if step.success_evaluation is not None
+                else None
+            )
             self.trace.append(
                 event_type="tool_call_failed",
                 data={
@@ -558,6 +563,7 @@ class Runtime:
                     "attempt": step.attempts,
                     "latency_ms": round((monotonic() - tool_started) * 1000, 3),
                     "error_type": error_type,
+                    "success_evaluation": success_evaluation,
                 },
                 parent_step_id="run",
             )
@@ -570,6 +576,7 @@ class Runtime:
                     "attempt": step.attempts,
                     "error_type": error_type,
                     "error": str(exc),
+                    "success_evaluation": success_evaluation,
                 },
                 parent_step_id="run",
             )
@@ -584,6 +591,11 @@ class Runtime:
                 "latency_ms": round((monotonic() - tool_started) * 1000, 3),
                 "output_summary": result.output_summary,
                 "evidence_ids": result.evidence_ids,
+                "success_evaluation": (
+                    step.success_evaluation.model_dump(mode="json")
+                    if step.success_evaluation is not None
+                    else None
+                ),
             },
             parent_step_id="run",
         )
@@ -594,6 +606,11 @@ class Runtime:
                 "plan_step_id": step_id,
                 "tool": step.tool,
                 "attempt": step.attempts,
+                "success_evaluation": (
+                    step.success_evaluation.model_dump(mode="json")
+                    if step.success_evaluation is not None
+                    else None
+                ),
             },
             parent_step_id="run",
         )

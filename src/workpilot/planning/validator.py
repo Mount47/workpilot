@@ -52,6 +52,10 @@ class PlanValidator:
                     f"step {step.step_id} requires evidence but tool {step.tool} "
                     "does not declare that contract"
                 )
+            elif step.success_rule_ids != spec.success_rule_ids:
+                errors.append(
+                    f"step {step.step_id} success rules do not match tool {step.tool}"
+                )
             else:
                 try:
                     self.registry.validate_inputs(step.tool, step.inputs)

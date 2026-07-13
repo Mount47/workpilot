@@ -176,6 +176,11 @@ def test_valid_llm_plan_uses_system_owned_identity(tmp_path: Path) -> None:
     assert plan.goal == "生成项目风险报告"
     assert plan.validated is True
     assert planner.last_decision.selected == "llm"
+    registry = create_default_registry()
+    assert all(
+        step.success_rule_ids == registry.get(step.tool).success_rule_ids
+        for step in plan.steps
+    )
 
 
 def test_invalid_tool_falls_back_to_deterministic_plan(tmp_path: Path) -> None:
