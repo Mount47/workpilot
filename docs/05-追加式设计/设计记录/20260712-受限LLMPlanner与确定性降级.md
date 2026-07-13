@@ -144,3 +144,7 @@ schema_version=plan.v1
 - success_criteria 只是计划契约，尚未被执行器自动判定；
 - 尚未建立真实模型下 deterministic 与 LLM Planner 的对比评测；
 - 计划调整、跳过、取消、并行和检查点恢复尚未实现。
+
+## 后续进展
+
+2026-07-13 已完成 SerialDAGScheduler 和 Runtime 接入，初始六步改由 Plan dependencies 驱动。当前仍保留六步 RuntimePlanPolicy，因此“模型不能真正增删步骤”的限制仍然成立，但“Runtime 固定代码顺序调用”已经解决。
