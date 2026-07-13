@@ -6,6 +6,12 @@ from typing import Optional
 
 import typer
 
+from workpilot.config import Settings
+from workpilot.providers.preflight import (
+    ProviderConfigurationError,
+    ProviderPreflightResult,
+    inspect_provider_configuration,
+)
 from workpilot.providers.registry import (
     AVAILABLE,
     get_provider,
@@ -58,7 +64,11 @@ def run(
     if base_url:
         provider_kwargs["base_url"] = base_url
 
-    llm_provider = get_provider(provider, **provider_kwargs)
+    try:
+        llm_provider = get_provider(provider, **provider_kwargs)
+    except (ProviderConfigurationError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
     model_router = None
     if route_config is not None:
         try:
@@ -173,6 +183,87 @@ def providers_list() -> None:
         )
 
 
+@app.command("doctor")
+def provider_doctor(
+    provider: Optional[str] = typer.Option(
+        None,
+        help="Provider to inspect; defaults to WORKPILOT_PROVIDER",
+    ),
+    model: Optional[str] = typer.Option(None, help="Model override to inspect"),
+    base_url: Optional[str] = typer.Option(
+        None,
+        "--base-url",
+        help="API base URL override to inspect",
+    ),
+    route_config: Optional[Path] = typer.Option(
+        None,
+        "--route-config",
+        help="Inspect every target in a JSON model route configuration",
+    ),
+) -> None:
+    """Check API configuration offline without exposing keys or using tokens."""
+    settings = Settings()
+    results: list[tuple[str | None, ProviderPreflightResult]] = []
+    if route_config is not None:
+        if not route_config.exists():
+            typer.echo(f"Error: route config '{route_config}' does not exist.", err=True)
+            raise typer.Exit(1)
+        try:
+            config = load_model_routing_config(route_config)
+            for route in config.routes:
+                for target in route.targets:
+                    required_capabilities = [
+                        name
+                        for name, required in {
+                            "structured_output": route.requirements.structured_output,
+                            "native_tools": route.requirements.native_tools,
+                            "multimodal_input": route.requirements.multimodal_input,
+                        }.items()
+                        if required
+                    ]
+                    result = inspect_provider_configuration(
+                        target.provider,
+                        model=target.model,
+                        required_capabilities=required_capabilities,
+                        settings=settings,
+                    )
+                    results.append((route.task_type.value, result))
+        except (ValueError, json.JSONDecodeError) as exc:
+            typer.echo(f"Error: invalid route config: {exc}", err=True)
+            raise typer.Exit(1) from exc
+    else:
+        selected = provider or settings.workpilot_provider
+        try:
+            results.append(
+                (
+                    None,
+                    inspect_provider_configuration(
+                        selected,
+                        model=model,
+                        base_url=base_url,
+                        settings=settings,
+                    ),
+                )
+            )
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+    typer.echo("[WorkPilot] Offline provider preflight")
+    for index, (task_type, result) in enumerate(results, start=1):
+        if len(results) > 1:
+            typer.echo(f"Target {index}: {task_type or 'default'}")
+        _print_preflight_result(result)
+        if index < len(results):
+            typer.echo()
+    ready = all(result.ready for _, result in results)
+    typer.echo()
+    typer.echo(f"Overall ready: {'yes' if ready else 'no'}")
+    typer.echo("Network request sent: no")
+    if not ready:
+        raise typer.Exit(1)
+
+
 @app.command("planner-eval")
 def planner_evaluate(
     suite: Path = typer.Option(..., help="Path to a Planner evaluation suite"),
@@ -191,6 +282,22 @@ def planner_evaluate(
     typer.echo(f"  Fallback rate: {summary.fallback_rate:.2%}")
     typer.echo(f"  Unsafe acceptance: {summary.unsafe_acceptance_rate:.2%}")
     typer.echo(f"  Output: {(output / 'planner_eval_report.json').resolve()}")
+
+
+def _print_preflight_result(result: ProviderPreflightResult) -> None:
+    typer.echo(f"  Provider: {result.provider}")
+    typer.echo(f"  Transport: {result.transport}")
+    typer.echo(f"  Model: {result.model or '<missing>'}")
+    typer.echo(f"  Base URL: {result.base_url or '<not required>'}")
+    typer.echo(f"  API key env: {result.api_key_env or '<not required>'}")
+    typer.echo(
+        "  API key configured: "
+        + ("yes" if result.api_key_configured else "no")
+    )
+    typer.echo(f"  Structured output: {result.structured_output_mode}")
+    typer.echo(f"  Ready: {'yes' if result.ready else 'no'}")
+    for issue in result.issues:
+        typer.echo(f"  Issue [{issue.code}]: {issue.message}")
 
 
 if __name__ == "__main__":

@@ -52,3 +52,17 @@ class Settings(BaseSettings):
             "gemini": self.gemini_api_key,
             "custom": self.custom_api_key,
         }.get(provider, "")
+
+    @staticmethod
+    def api_key_env_for(provider: str) -> str | None:
+        """Return the documented environment variable without reading its value."""
+        return {
+            "openai": "OPENAI_API_KEY",
+            "claude": "ANTHROPIC_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
+            "qwen": "DASHSCOPE_API_KEY",
+            "bailian": "DASHSCOPE_API_KEY",
+            "glm": "GLM_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "custom": "CUSTOM_API_KEY",
+        }.get(provider)

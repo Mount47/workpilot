@@ -68,9 +68,9 @@ def test_custom_provider_requires_explicit_model_and_base_url() -> None:
         api_key_for=lambda name: "",
     )
     with patch("workpilot.providers.registry.Settings", return_value=settings):
-        with pytest.raises(ValueError, match="requires --model"):
+        with pytest.raises(ValueError, match="missing_model"):
             get_provider("custom", api_key="test")
-        with pytest.raises(ValueError, match="requires --base-url"):
+        with pytest.raises(ValueError, match="missing_base_url"):
             get_provider("custom", api_key="test", model="private-model")
 
 

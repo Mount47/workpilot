@@ -10,6 +10,7 @@ from workpilot.providers.specs import (
     ProviderTransport,
 )
 from workpilot.providers.stub import StubProvider
+from workpilot.providers.preflight import inspect_provider_configuration
 
 
 AVAILABLE = sorted(PROVIDER_DESCRIPTORS)
@@ -46,6 +47,14 @@ def get_provider(name: str, **kwargs: Any) -> LLMProvider:
     model = kwargs.pop("model", None) or settings.workpilot_model or descriptor.default_model
     configured_base_url = kwargs.pop("base_url", None) or settings.workpilot_base_url
     base_url = configured_base_url or descriptor.default_base_url
+    preflight = inspect_provider_configuration(
+        name,
+        model=model,
+        base_url=base_url,
+        api_key_configured=bool(api_key.strip()),
+        settings=settings,
+    )
+    preflight.raise_for_errors()
 
     if descriptor.transport == ProviderTransport.ANTHROPIC_NATIVE:
         from workpilot.providers.claude_provider import ClaudeProvider

@@ -1,7 +1,6 @@
 """Anthropic Claude provider using the native messages API."""
 
 import json
-import os
 from time import monotonic
 from typing import Any
 
@@ -37,12 +36,13 @@ class ClaudeProvider(LLMProvider):
         max_tokens: int = 4096,
         provider_name: str = "claude",
     ) -> None:
-        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise ValueError("api_key must be supplied by the Provider Registry")
         self.model = model
         self.provider_name = provider_name
         self.max_retries = max_retries
         self.max_tokens = max_tokens
-        client_kwargs: dict[str, Any] = {"api_key": resolved_key, "timeout": timeout}
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
         if base_url:
             client_kwargs["base_url"] = base_url
         self.client = Anthropic(**client_kwargs)

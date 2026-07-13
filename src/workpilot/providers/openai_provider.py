@@ -1,7 +1,6 @@
 """OpenAI-compatible provider — works with OpenAI, DeepSeek, Qwen and GLM."""
 
 import json
-import os
 from time import monotonic
 from typing import Any
 
@@ -63,18 +62,14 @@ class OpenAIProvider(LLMProvider):
         timeout: float = 60.0,
         provider_name: str = "openai",
     ) -> None:
-        resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        if not resolved_key:
-            for env_var in ["DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "GLM_API_KEY"]:
-                resolved_key = os.environ.get(env_var, "")
-                if resolved_key:
-                    break
+        if not api_key:
+            raise ValueError("api_key must be supplied by the Provider Registry")
 
         self.model = model
         self.provider_name = provider_name
         self.max_retries = max_retries
         self.client = OpenAI(
-            api_key=resolved_key,
+            api_key=api_key,
             base_url=base_url,
             timeout=timeout,
         )
