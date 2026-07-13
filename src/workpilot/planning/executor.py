@@ -72,11 +72,15 @@ class PlanExecutor:
         allow_reentry: bool = False,
     ) -> ToolResult:
         """Execute a PlanStep through its Registry-bound ToolHandler."""
+        def invoke(step: PlanStep) -> ToolResult:
+            result = self.registry.invoke(step.tool, step.inputs, step)
+            if not isinstance(result, ToolResult):
+                raise TypeError("registered tool handler must return ToolResult")
+            return result
+
         result = self.execute_step(
             step_id,
-            lambda step: self.registry.invoke(step.tool, step.inputs, step),
+            invoke,
             allow_reentry=allow_reentry,
         )
-        if not isinstance(result, ToolResult):
-            raise TypeError("registered tool handler must return ToolResult")
         return result

@@ -12,6 +12,8 @@ class PlanStepStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
 
 
 class ToolSpec(BaseModel):

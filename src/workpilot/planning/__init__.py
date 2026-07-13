@@ -18,6 +18,12 @@ from workpilot.planning.planner import (
     RuntimePlanPolicy,
 )
 from workpilot.planning.registry import ToolRegistry, create_default_registry
+from workpilot.planning.scheduler import (
+    SchedulerDeadlockError,
+    SchedulerRunResult,
+    SerialDAGScheduler,
+    StepResultStore,
+)
 from workpilot.planning.validator import PlanValidationError, PlanValidator
 from workpilot.planning.tools import (
     CallableToolHandler,
@@ -48,4 +54,8 @@ __all__ = [
     "ToolHandler",
     "ToolInput",
     "ToolResult",
+    "SchedulerDeadlockError",
+    "SchedulerRunResult",
+    "SerialDAGScheduler",
+    "StepResultStore",
 ]
