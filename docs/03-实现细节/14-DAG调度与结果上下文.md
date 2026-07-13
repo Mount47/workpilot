@@ -110,6 +110,6 @@ scheduler.run(stop_before_step_ids={"finalize"})
 
 - RuntimePlanPolicy 仍固定六个核心步骤和工具映射；
 - 修订三步目前由 Runtime 显式受控重入，不是自动计划调整；
-- success_criteria 仍是自然语言，尚未绑定确定性规则；
+- 自然语言 success_criteria 已与确定性 success_rule_ids 分离；第一版规则只检查 ToolResult 状态和安全摘要结构；
 - Store 没有持久化，进程退出后不能恢复；
 - 没有取消、超时、幂等键和并发执行。
