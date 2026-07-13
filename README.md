@@ -51,6 +51,26 @@ workpilot providers
 
 当前注册 Stub、OpenAI、Claude、DeepSeek、Qwen/百炼、GLM、Gemini，以及任意 OpenAI-compatible 企业网关。
 
+真实模型调用前，复制配置模板并只填写准备使用的 Provider Key：
+
+```bash
+cp .env.example .env
+workpilot doctor --provider deepseek
+```
+
+Doctor 完全离线运行，只显示 Key 是否已配置，不显示 Key 内容。返回 `Overall ready: yes` 后，可以先在脱敏样例上做一次低预算真实运行：
+
+```bash
+workpilot run \
+  --workspace ./tests/fixtures/workspaces/basic_project \
+  --goal "生成本周项目周报" \
+  --provider deepseek \
+  --token-budget 10000 \
+  --output ./runs/real-model-smoke
+```
+
+真实 API Key 不要通过命令行参数、路由文件、聊天消息或 Git 提交传递。
+
 ## 分层模型路由
 
 ```bash
@@ -62,3 +82,9 @@ workpilot run \
 ```
 
 示例按 Evidence 抽取、分析、修订、规划和语义复核配置不同模型档位。配置 `planning` Route 后，Runtime 会尝试受限 LLM Planner；非法计划或可降级 Provider 失败会回退 DeterministicPlanner。API Key 只从环境变量或 `.env` 读取，不应写入路由文件。
+
+启用路由前先运行：
+
+```bash
+workpilot doctor --route-config ./examples/model_routes.json
+```
