@@ -10,6 +10,7 @@ from workpilot.planning.tools import ToolResult
 
 
 SchedulerEventHandler = Callable[[str, dict[str, Any]], None]
+SchedulerStepExecutor = Callable[[str], ToolResult]
 
 
 class SchedulerDeadlockError(RuntimeError):
@@ -69,10 +70,17 @@ class SchedulerRunResult:
     failed_step_ids: list[str] = field(default_factory=list)
     blocked_step_ids: list[str] = field(default_factory=list)
     skipped_step_ids: list[str] = field(default_factory=list)
+    pending_step_ids: list[str] = field(default_factory=list)
+    paused: bool = False
 
     @property
     def succeeded(self) -> bool:
-        return not self.failed_step_ids and not self.blocked_step_ids
+        return (
+            not self.paused
+            and not self.failed_step_ids
+            and not self.blocked_step_ids
+            and not self.pending_step_ids
+        )
 
 
 class SerialDAGScheduler:
@@ -90,11 +98,14 @@ class SerialDAGScheduler:
         *,
         result_store: StepResultStore | None = None,
         on_event: SchedulerEventHandler | None = None,
+        execute_step: SchedulerStepExecutor | None = None,
     ) -> None:
         self.executor = executor
         self.plan = executor.plan
         self.result_store = result_store or StepResultStore()
         self.on_event = on_event
+        self.execute_step = execute_step or executor.execute_registered_step
+        self._failure_causes: dict[str, Exception] = {}
 
     def ready_steps(self) -> list[PlanStep]:
         """Return pending steps whose dependencies have all completed."""
@@ -120,22 +131,39 @@ class SerialDAGScheduler:
         step.last_error_type = reason
         self._emit("scheduler_step_skipped", step_id=step_id, reason=reason)
 
-    def run(self) -> SchedulerRunResult:
+    def run(
+        self,
+        *,
+        stop_before_step_ids: set[str] | None = None,
+    ) -> SchedulerRunResult:
         """Run all reachable steps, continuing branches independent of failures."""
+        stop_before = stop_before_step_ids or set()
         self._emit("scheduler_started", step_count=len(self.plan.steps))
         while True:
             changed = self._propagate_blocked_steps()
             ready = self.ready_steps()
             if ready:
-                for step in ready:
+                executable = [
+                    step for step in ready if step.step_id not in stop_before
+                ]
+                if not executable:
+                    result = self._build_result(paused=True)
+                    self._emit(
+                        "scheduler_paused",
+                        pending_step_ids=result.pending_step_ids,
+                        stop_before_step_ids=sorted(stop_before),
+                    )
+                    return result
+                for step in executable:
                     self._emit(
                         "scheduler_step_ready",
                         step_id=step.step_id,
                         dependencies=step.dependencies,
                     )
                     try:
-                        result = self.executor.execute_registered_step(step.step_id)
+                        result = self.execute_step(step.step_id)
                     except Exception as exc:
+                        self._failure_causes[step.step_id] = exc
                         self._emit(
                             "scheduler_step_failed",
                             step_id=step.step_id,
@@ -174,6 +202,13 @@ class SerialDAGScheduler:
         )
         return result
 
+    def raise_first_failure(self) -> None:
+        """Re-raise the earliest plan-ordered tool failure, if one occurred."""
+        for step in self.plan.steps:
+            cause = self._failure_causes.get(step.step_id)
+            if cause is not None:
+                raise cause
+
     def _propagate_blocked_steps(self) -> bool:
         changed = False
         for step in self.plan.steps:
@@ -197,7 +232,7 @@ class SerialDAGScheduler:
             )
         return changed
 
-    def _build_result(self) -> SchedulerRunResult:
+    def _build_result(self, *, paused: bool = False) -> SchedulerRunResult:
         by_status = {
             status: [
                 step.step_id for step in self.plan.steps if step.status == status
@@ -209,6 +244,8 @@ class SerialDAGScheduler:
             failed_step_ids=by_status[PlanStepStatus.FAILED],
             blocked_step_ids=by_status[PlanStepStatus.BLOCKED],
             skipped_step_ids=by_status[PlanStepStatus.SKIPPED],
+            pending_step_ids=by_status[PlanStepStatus.PENDING],
+            paused=paused,
         )
 
     def _emit(self, event_type: str, **payload: Any) -> None:

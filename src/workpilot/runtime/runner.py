@@ -23,8 +23,11 @@ from workpilot.planning import (
     PlanStep,
     PlanValidator,
     RuntimePlanPolicy,
+    SerialDAGScheduler,
+    StepResultStore,
     CallableToolHandler,
     ToolInput,
+    ToolResult,
     create_default_registry,
 )
 from workpilot.providers.base import (
@@ -213,6 +216,11 @@ class Runtime:
             )
 
         plan_executor = PlanExecutor(self.plan, self.tool_registry)
+        result_store = StepResultStore()
+        execution_context: dict[str, Any] = {
+            "attempt": 1,
+            "verification_report": None,
+        }
 
         def scan_workspace(_: PlanStep) -> list[str]:
             with self._step(
@@ -233,10 +241,6 @@ class Runtime:
             scan_workspace,
             summarize=lambda files: {"file_count": len(files)},
         )
-        files = self._execute_plan_step(
-            plan_executor,
-            "scan_workspace",
-        )
 
         def extract_evidence(_: PlanStep) -> dict[str, int]:
             with self._step("retrieve.evidence") as step_id:
@@ -248,6 +252,7 @@ class Runtime:
                     goal=self.contract.goal,
                     on_model_call=lambda call: self._observe_model_call(call, step_id),
                 )
+                files = result_store.get("scan_workspace").output
                 evidences = extractor.extract_all(files)
                 for evidence in evidences:
                     self.memory.add_evidence(evidence)
@@ -273,11 +278,6 @@ class Runtime:
             extract_evidence,
             summarize=lambda output: dict(output),
         )
-        self._execute_plan_step(
-            plan_executor,
-            "extract_evidence",
-        )
-
         citation_verifier = CitationVerifier(
             evidence_store=self.evidence_store,
             workspace=self.workspace,
@@ -285,167 +285,136 @@ class Runtime:
         claim_support_verifier = ClaimSupportVerifier(
             evidence_store=self.evidence_store,
         )
-        artifacts: dict = {}
-        verify_results = []
-        errors = []
 
-        for attempt in range(1, self.MAX_SYNTHESIS_ATTEMPTS + 1):
-            allow_reentry = attempt > 1
-
-            def build_claims(_: PlanStep) -> ProjectSnapshot:
-                claim_state = (
-                    RunState.SYNTHESIZING if attempt == 1 else RunState.REVISING
+        def build_claims(_: PlanStep) -> ProjectSnapshot:
+            attempt = execution_context["attempt"]
+            claim_state = (
+                RunState.SYNTHESIZING if attempt == 1 else RunState.REVISING
+            )
+            step_name = "synthesize.claims" if attempt == 1 else "revise.claims"
+            with self._step(step_name, state=claim_state) as step_id:
+                if self.model_router is None and not isinstance(
+                    self.provider,
+                    StubProvider,
+                ):
+                    self.budget.check_model_call_allowed()
+                builder = (
+                    self.claim_builder
+                    if attempt == 1
+                    else self.revision_claim_builder
                 )
-                step_name = (
-                    "synthesize.claims" if attempt == 1 else "revise.claims"
-                )
-                with self._step(step_name, state=claim_state) as step_id:
-                    if self.model_router is None and not isinstance(self.provider, StubProvider):
-                        self.budget.check_model_call_allowed()
-                    builder = (
-                        self.claim_builder
-                        if attempt == 1
-                        else self.revision_claim_builder
+                try:
+                    self.project_snapshot = builder.build(
+                        project_id=self.contract.workspace_root.name,
+                        snapshot_id=f"{self.run_id}-attempt-{attempt}",
+                        goal=self.contract.goal,
+                        evidence_store=self.evidence_store,
+                        feedback=self.memory.revision_feedback,
                     )
-                    try:
-                        self.project_snapshot = builder.build(
-                            project_id=self.contract.workspace_root.name,
-                            snapshot_id=f"{self.run_id}-attempt-{attempt}",
-                            goal=self.contract.goal,
-                            evidence_store=self.evidence_store,
-                            feedback=self.memory.revision_feedback,
-                        )
-                    except ProviderResponseError as exc:
-                        for generation in exc.generations:
-                            self._observe_model_call(generation, step_id)
-                        raise
-                    for generation in builder.get_model_calls():
+                except ProviderResponseError as exc:
+                    for generation in exc.generations:
                         self._observe_model_call(generation, step_id)
-                    self.memory.set_project_snapshot(self.project_snapshot)
-                    self.trace.append(
-                        event_type="claims_built",
-                        data={
-                            "attempt": attempt,
-                            "claim_count": len(self.project_snapshot.claims),
-                        },
-                        step_id=step_id,
-                        parent_step_id="run",
-                    )
-                    return self.project_snapshot
-
-            if attempt == 1:
-                self._bind_runtime_handler(
-                    "claims.build",
-                    build_claims,
-                    summarize=lambda snapshot: {
-                        "claim_count": len(snapshot.claims),
-                        "source_count": len(snapshot.source_ids),
-                    },
-                )
-            self._execute_plan_step(
-                plan_executor,
-                "build_claims",
-                allow_reentry=allow_reentry,
-            )
-
-            def render_artifacts(_: PlanStep) -> dict:
-                with self._step("synthesize.artifacts") as step_id:
-                    rendered = self.synthesizer.generate(
-                        contract=self.contract,
-                        project_snapshot=self.project_snapshot,
-                    )
-                    self.memory.record_artifacts(list(rendered.keys()))
-                    self.trace.append(
-                        event_type="artifacts_generated",
-                        data={
-                            "attempt": attempt,
-                            "artifacts": list(rendered.keys()),
-                        },
-                        step_id=step_id,
-                        parent_step_id="run",
-                    )
-                    return rendered
-
-            if attempt == 1:
-                self._bind_runtime_handler(
-                    "artifacts.render",
-                    render_artifacts,
-                    summarize=lambda rendered: {
-                        "artifact_names": sorted(rendered),
-                        "artifact_count": len(rendered),
-                    },
-                )
-            artifacts = self._execute_plan_step(
-                plan_executor,
-                "render_artifacts",
-                allow_reentry=allow_reentry,
-            )
-
-            def verify(_: PlanStep) -> tuple[list, list]:
-                with self._step("verify", state=RunState.VERIFYING) as step_id:
-                    claim_results = claim_support_verifier.verify(
-                        project_snapshot=self.project_snapshot,
-                    )
-                    citation_results = citation_verifier.verify(artifacts=artifacts)
-                    results = claim_results + citation_results
-                    current_errors = [
-                        result
-                        for result in results
-                        if result.status == "failed" and result.severity == "error"
-                    ]
-                    self.memory.record_verification(results)
-                    self.trace.append(
-                        event_type="verification_completed",
-                        data={
-                            "attempt": attempt,
-                            "status": "failed" if current_errors else "passed",
-                            "error_count": len(current_errors),
-                            "claim_check_count": len(claim_results),
-                            "citation_check_count": len(citation_results),
-                        },
-                        step_id=step_id,
-                        parent_step_id="run",
-                    )
-                    return results, current_errors
-
-            if attempt == 1:
-                self._bind_runtime_handler(
-                    "verification.run",
-                    verify,
-                    summarize=lambda output: {
-                        "check_count": len(output[0]),
-                        "error_count": len(output[1]),
-                    },
-                )
-            verify_results, errors = self._execute_plan_step(
-                plan_executor,
-                "verify",
-                allow_reentry=allow_reentry,
-            )
-
-            if not errors:
-                break
-            if attempt < self.MAX_SYNTHESIS_ATTEMPTS:
-                feedback = self._format_verification_feedback(errors)
-                self.memory.request_revision(feedback)
+                    raise
+                for generation in builder.get_model_calls():
+                    self._observe_model_call(generation, step_id)
+                self.memory.set_project_snapshot(self.project_snapshot)
                 self.trace.append(
-                    event_type="revision_requested",
-                    data={"attempt": attempt, "error_count": len(errors)},
+                    event_type="claims_built",
+                    data={
+                        "attempt": attempt,
+                        "claim_count": len(self.project_snapshot.claims),
+                    },
+                    step_id=step_id,
                     parent_step_id="run",
                 )
+                return self.project_snapshot
 
-        verification_report = {
-            "status": "failed" if errors else "passed",
-            "checks": [result.to_dict() for result in verify_results],
-            "error_count": len(errors),
-            "total_checks": len(verify_results),
-        }
+        self._bind_runtime_handler(
+            "claims.build",
+            build_claims,
+            summarize=lambda snapshot: {
+                "claim_count": len(snapshot.claims),
+                "source_count": len(snapshot.source_ids),
+            },
+        )
+
+        def render_artifacts(_: PlanStep) -> dict:
+            attempt = execution_context["attempt"]
+            with self._step("synthesize.artifacts") as step_id:
+                project_snapshot = result_store.get("build_claims").output
+                rendered = self.synthesizer.generate(
+                    contract=self.contract,
+                    project_snapshot=project_snapshot,
+                )
+                self.memory.record_artifacts(list(rendered.keys()))
+                self.trace.append(
+                    event_type="artifacts_generated",
+                    data={
+                        "attempt": attempt,
+                        "artifacts": list(rendered.keys()),
+                    },
+                    step_id=step_id,
+                    parent_step_id="run",
+                )
+                return rendered
+
+        self._bind_runtime_handler(
+            "artifacts.render",
+            render_artifacts,
+            summarize=lambda rendered: {
+                "artifact_names": sorted(rendered),
+                "artifact_count": len(rendered),
+            },
+        )
+
+        def verify(_: PlanStep) -> tuple[list, list]:
+            attempt = execution_context["attempt"]
+            with self._step("verify", state=RunState.VERIFYING) as step_id:
+                project_snapshot = result_store.get("build_claims").output
+                artifacts = result_store.get("render_artifacts").output
+                claim_results = claim_support_verifier.verify(
+                    project_snapshot=project_snapshot,
+                )
+                citation_results = citation_verifier.verify(artifacts=artifacts)
+                results = claim_results + citation_results
+                current_errors = [
+                    result
+                    for result in results
+                    if result.status == "failed" and result.severity == "error"
+                ]
+                self.memory.record_verification(results)
+                self.trace.append(
+                    event_type="verification_completed",
+                    data={
+                        "attempt": attempt,
+                        "status": "failed" if current_errors else "passed",
+                        "error_count": len(current_errors),
+                        "claim_check_count": len(claim_results),
+                        "citation_check_count": len(citation_results),
+                    },
+                    step_id=step_id,
+                    parent_step_id="run",
+                )
+                return results, current_errors
+
+        self._bind_runtime_handler(
+            "verification.run",
+            verify,
+            summarize=lambda output: {
+                "check_count": len(output[0]),
+                "error_count": len(output[1]),
+            },
+        )
 
         def finalize(_: PlanStep) -> None:
             with self._step("finalize"):
+                artifacts = result_store.get("render_artifacts").output
                 for name, content in artifacts.items():
                     self.writer.write(name, content)
-                self.writer.write_json("verification_report.json", verification_report)
+                self.writer.write_json(
+                    "verification_report.json",
+                    execution_context["verification_report"],
+                )
                 self.memory.record_artifacts(
                     list(artifacts.keys()) + ["verification_report.json"]
                 )
@@ -455,7 +424,61 @@ class Runtime:
             finalize,
             summarize=lambda _: {"status": "persisted"},
         )
-        self._execute_plan_step(plan_executor, "finalize")
+
+        scheduler = SerialDAGScheduler(
+            plan_executor,
+            result_store=result_store,
+            execute_step=lambda step_id: self._execute_plan_step_result(
+                plan_executor,
+                step_id,
+            ),
+            on_event=self._record_scheduler_event,
+        )
+        initial_result = scheduler.run(stop_before_step_ids={"finalize"})
+        if initial_result.failed_step_ids or initial_result.blocked_step_ids:
+            scheduler.raise_first_failure()
+            raise RuntimeError(
+                "Plan execution failed before finalization: "
+                f"failed={initial_result.failed_step_ids}, "
+                f"blocked={initial_result.blocked_step_ids}"
+            )
+        if not initial_result.paused:
+            raise RuntimeError("Scheduler did not pause before finalization")
+
+        verify_results, errors = result_store.get("verify").output
+        while errors and execution_context["attempt"] < self.MAX_SYNTHESIS_ATTEMPTS:
+            attempt = execution_context["attempt"]
+            feedback = self._format_verification_feedback(errors)
+            self.memory.request_revision(feedback)
+            self.trace.append(
+                event_type="revision_requested",
+                data={"attempt": attempt, "error_count": len(errors)},
+                parent_step_id="run",
+            )
+            execution_context["attempt"] = attempt + 1
+            for step_id in ("build_claims", "render_artifacts", "verify"):
+                result = self._execute_plan_step_result(
+                    plan_executor,
+                    step_id,
+                    allow_reentry=True,
+                )
+                result_store.put(step_id, result, allow_overwrite=True)
+            verify_results, errors = result_store.get("verify").output
+
+        execution_context["verification_report"] = {
+            "status": "failed" if errors else "passed",
+            "checks": [result.to_dict() for result in verify_results],
+            "error_count": len(errors),
+            "total_checks": len(verify_results),
+        }
+        final_result = scheduler.run()
+        if not final_result.succeeded:
+            raise RuntimeError(
+                "Plan execution did not reach a successful terminal state: "
+                f"failed={final_result.failed_step_ids}, "
+                f"blocked={final_result.blocked_step_ids}, "
+                f"pending={final_result.pending_step_ids}"
+            )
         self.writer.write_json("plan.json", self.plan.model_dump(mode="json"))
         self.memory.record_artifacts(["plan.json"])
 
@@ -481,6 +504,19 @@ class Runtime:
         *,
         allow_reentry: bool = False,
     ) -> Any:
+        return self._execute_plan_step_result(
+            executor,
+            step_id,
+            allow_reentry=allow_reentry,
+        ).output
+
+    def _execute_plan_step_result(
+        self,
+        executor: PlanExecutor,
+        step_id: str,
+        *,
+        allow_reentry: bool = False,
+    ) -> ToolResult:
         step = executor.plan.get_step(step_id)
         next_attempt = step.attempts + 1
         self.trace.append(
@@ -561,7 +597,18 @@ class Runtime:
             },
             parent_step_id="run",
         )
-        return result.output
+        return result
+
+    def _record_scheduler_event(
+        self,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        self.trace.append(
+            event_type=event_type,
+            data=data,
+            parent_step_id="run",
+        )
 
     def _bind_runtime_handler(
         self,

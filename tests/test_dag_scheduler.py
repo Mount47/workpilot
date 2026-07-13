@@ -116,7 +116,8 @@ def test_scheduler_blocks_failed_descendants_but_runs_independent_branch() -> No
             raise RuntimeError("expected failure")
         return step.step_id
 
-    result = _scheduler(plan, execute).run()
+    scheduler = _scheduler(plan, execute)
+    result = scheduler.run()
 
     assert executed == ["failing", "independent"]
     assert result.succeeded is False
@@ -124,6 +125,8 @@ def test_scheduler_blocks_failed_descendants_but_runs_independent_branch() -> No
     assert result.blocked_step_ids == ["blocked_child", "blocked_grandchild"]
     assert plan.get_step("blocked_child").last_error_type == "dependency_terminal"
     assert plan.get_step("independent").status == PlanStepStatus.COMPLETED
+    with pytest.raises(RuntimeError, match="expected failure"):
+        scheduler.raise_first_failure()
 
 
 def test_scheduler_explicit_skip_blocks_dependent_step() -> None:
@@ -156,6 +159,56 @@ def test_scheduler_reports_deadlock_for_unvalidated_runtime_cycle() -> None:
         scheduler.run()
 
     assert exc_info.value.pending_step_ids == ["first", "second"]
+
+
+def test_scheduler_can_pause_before_a_business_gate_and_resume() -> None:
+    executed: list[str] = []
+    events: list[tuple[str, dict]] = []
+    plan = Plan(
+        plan_id="pause",
+        goal="Pause before finalization.",
+        created_by="test",
+        steps=[_step("analyze"), _step("finalize", ["analyze"])],
+    )
+    scheduler = _scheduler(
+        plan,
+        lambda _, step: executed.append(step.step_id) or step.step_id,
+        events=events,
+    )
+
+    paused = scheduler.run(stop_before_step_ids={"finalize"})
+
+    assert paused.paused is True
+    assert paused.succeeded is False
+    assert paused.pending_step_ids == ["finalize"]
+    assert executed == ["analyze"]
+    assert events[-1][0] == "scheduler_paused"
+
+    completed = scheduler.run()
+
+    assert completed.succeeded is True
+    assert executed == ["analyze", "finalize"]
+
+
+def test_scheduler_accepts_observed_execution_boundary() -> None:
+    plan = Plan(
+        plan_id="observed",
+        goal="Use an injected execution boundary.",
+        created_by="test",
+        steps=[_step("only")],
+    )
+    scheduler = _scheduler(plan, lambda *_: "registry")
+    observed: list[str] = []
+
+    def execute(step_id: str) -> ToolResult:
+        observed.append(step_id)
+        return scheduler.executor.execute_registered_step(step_id)
+
+    scheduler.execute_step = execute
+    result = scheduler.run()
+
+    assert result.succeeded is True
+    assert observed == ["only"]
 
 
 def test_result_store_supports_dependency_output_without_trace_leakage() -> None:

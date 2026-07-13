@@ -50,6 +50,20 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert "budget_summary" in event_types
     assert "tool_call_started" in event_types
     assert "tool_call_completed" in event_types
+    assert "scheduler_started" in event_types
+    assert "scheduler_step_ready" in event_types
+    assert "scheduler_paused" in event_types
+    assert "scheduler_completed" in event_types
+    scheduler_events = [
+        event["event_type"]
+        for event in trace["events"]
+        if event["event_type"].startswith("scheduler_")
+    ]
+    assert scheduler_events.count("scheduler_started") == 2
+    assert scheduler_events.count("scheduler_step_ready") == 6
+    assert scheduler_events.index("scheduler_paused") < scheduler_events.index(
+        "scheduler_completed"
+    )
     tool_events = [
         event for event in trace["events"]
         if event["event_type"] == "tool_call_completed"
