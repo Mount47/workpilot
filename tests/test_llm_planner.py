@@ -107,7 +107,27 @@ class PlannerContractProvider(LLMProvider):
         if response_model is PlanDraft:
             value = response_model.model_validate(self.plan_data)
         else:
-            value = response_model.model_validate({"claims": []})
+            value = response_model.model_validate(
+                {
+                    "claims": [
+                        {
+                            "text": (
+                                "- PROJ-101: 支付重试逻辑开发 "
+                                "(李四, P1, blocked — 等待 API 设计确认)"
+                            ),
+                            "claim_type": "explicit_fact",
+                            "category": "context",
+                            "evidence_refs": ["E-0001"],
+                        },
+                        {
+                            "text": "- 张三（产品）",
+                            "claim_type": "explicit_fact",
+                            "category": "context",
+                            "evidence_refs": ["E-0002"],
+                        },
+                    ]
+                }
+            )
         return StructuredGenerationResult(
             value=value,
             generations=(self.generate_text(prompt),),

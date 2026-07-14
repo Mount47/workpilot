@@ -3,8 +3,39 @@
 import json
 from pathlib import Path
 
+from workpilot.providers.base import EvidenceCandidate, EvidenceExtractionResult
 from workpilot.providers.registry import get_provider
+from workpilot.providers.stub import StubProvider
 from workpilot.runtime.runner import Runtime
+
+
+class RepairingStubProvider(StubProvider):
+    """Return invalid candidates once per source, then recover deterministically."""
+
+    def __init__(self) -> None:
+        self.attempts: dict[str, int] = {}
+
+    def extract_evidence_from_file(
+        self,
+        file_path: str,
+        content: str,
+        goal: str,
+    ) -> EvidenceExtractionResult:
+        attempt = self.attempts.get(file_path, 0) + 1
+        self.attempts[file_path] = attempt
+        if attempt == 1:
+            return EvidenceExtractionResult(
+                candidates=[
+                    EvidenceCandidate(
+                        evidence_id="",
+                        source_file=file_path,
+                        quote="not present in source",
+                        start_line=1,
+                        end_line=1,
+                    )
+                ]
+            )
+        return super().extract_evidence_from_file(file_path, content, goal)
 
 
 def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
@@ -103,6 +134,15 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     check_ids = {check["check_id"] for check in verification["checks"]}
     assert "claim.supported" in check_ids
     assert "citation.valid" in check_ids
+    assert "source.claim_coverage" in check_ids
+
+    quality_events = [
+        event
+        for event in trace["events"]
+        if event["event_type"] == "evidence_quality_evaluated"
+    ]
+    assert len(quality_events) == 1
+    assert quality_events[0]["data"]["passed"] is True
 
     # Working Memory exports only safe IDs, state and resource summaries.
     context = json.loads((tmp_output / "run_context.json").read_text())
@@ -122,3 +162,36 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert plan["validated"] is True
     assert len(plan["steps"]) == 6
     assert all(step["attempts"] == 1 for step in plan["steps"])
+
+
+def test_runtime_repairs_invalid_evidence_before_synthesis(
+    basic_workspace: Path,
+    tmp_path: Path,
+) -> None:
+    provider = RepairingStubProvider()
+    output = tmp_path / "evidence-repair"
+    runtime = Runtime(
+        workspace_root=basic_workspace,
+        goal="生成本周项目周报",
+        output_dir=output,
+        provider=provider,
+    )
+
+    result = runtime.execute()
+
+    assert result.state.value == "passed"
+    assert set(provider.attempts.values()) == {2}
+    trace = json.loads((output / "trace.json").read_text())
+    quality_events = [
+        event
+        for event in trace["events"]
+        if event["event_type"] == "evidence_quality_evaluated"
+    ]
+    assert [event["data"]["passed"] for event in quality_events] == [False, True]
+    repair_events = [
+        event
+        for event in trace["events"]
+        if event["event_type"] == "evidence_repair_requested"
+    ]
+    assert len(repair_events) == 1
+    assert repair_events[0]["data"]["source_count"] == 2

@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 from workpilot.domain import Evidence, SourceLocator
+from workpilot.evidence.quality import SourceExtractionReport
 from workpilot.providers.base import EvidenceCandidate, GenerationResult, LLMProvider
 from workpilot.workspace.tools import WorkspaceTools
 
@@ -20,15 +21,17 @@ class EvidenceExtractor:
         workspace: WorkspaceTools,
         goal: str,
         on_model_call: Callable[[GenerationResult], None] | None = None,
+        starting_index: int = 0,
     ) -> None:
         self.provider = provider
         self.workspace = workspace
         self.goal = goal
         self.on_model_call = on_model_call
-        self._counter = 0
+        self._counter = starting_index
         self._discarded: list[dict] = []
         self._model_calls: list[GenerationResult] = []
         self._provider_errors: list[dict[str, str]] = []
+        self._source_reports: list[SourceExtractionReport] = []
 
     def extract_all(self, files: list[str]) -> list[Evidence]:
         """Extract evidence from all files. Returns validated candidates."""
@@ -37,7 +40,14 @@ class EvidenceExtractor:
         for file_path in files:
             try:
                 content = self.workspace.read_file(file_path)
-            except (PermissionError, FileNotFoundError):
+            except (PermissionError, FileNotFoundError) as exc:
+                self._source_reports.append(
+                    SourceExtractionReport(
+                        source_id=file_path,
+                        status="read_failed",
+                        read_error_type=type(exc).__name__,
+                    )
+                )
                 continue
 
             extraction = self.provider.extract_evidence_from_file(
@@ -54,10 +64,22 @@ class EvidenceExtractor:
                 for generation in extraction.generations:
                     self.on_model_call(generation)
 
+            accepted_count = 0
+            discarded_before = len(self._discarded)
             for candidate in extraction.candidates:
                 validated = self._validate_and_assign_id(candidate, content)
                 if validated is not None:
                     all_evidence.append(validated)
+                    accepted_count += 1
+            self._source_reports.append(
+                SourceExtractionReport(
+                    source_id=file_path,
+                    candidate_count=len(extraction.candidates),
+                    accepted_count=accepted_count,
+                    discarded_count=len(self._discarded) - discarded_before,
+                    provider_error_type=extraction.error_type,
+                )
+            )
 
         return all_evidence
 
@@ -72,6 +94,10 @@ class EvidenceExtractor:
     def get_provider_errors(self) -> list[dict[str, str]]:
         """Return provider failures separately from valid empty extraction."""
         return list(self._provider_errors)
+
+    def get_source_reports(self) -> list[SourceExtractionReport]:
+        """Return content-free per-source outcomes for deterministic gates."""
+        return list(self._source_reports)
 
     def _validate_and_assign_id(
         self, candidate: EvidenceCandidate, source_content: str

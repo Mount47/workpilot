@@ -57,8 +57,31 @@ class RoutedContractProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.0,
     ) -> StructuredGenerationResult:
+        payload = (
+            {
+                    "claims": [
+                        {
+                            "text": (
+                                "- PROJ-101: 支付重试逻辑开发 "
+                                "(李四, P1, blocked — 等待 API 设计确认)"
+                            ),
+                            "claim_type": "explicit_fact",
+                            "category": "context",
+                            "evidence_refs": ["E-0001"],
+                        },
+                        {
+                            "text": "- 张三（产品）",
+                            "claim_type": "explicit_fact",
+                            "category": "context",
+                            "evidence_refs": ["E-0002"],
+                        },
+                    ]
+                }
+            if response_model.__name__ == "ClaimDraftCollection"
+            else {"claims": []}
+        )
         return StructuredGenerationResult(
-            value=response_model.model_validate({"claims": []}),
+            value=response_model.model_validate(payload),
             generations=(self.generate_text(prompt),),
         )
 

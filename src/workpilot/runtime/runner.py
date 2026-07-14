@@ -12,6 +12,7 @@ from workpilot.artifacts.writer import ArtifactWriter
 from workpilot.contracts import MissionContract
 from workpilot.domain import ProjectSnapshot
 from workpilot.evidence.extraction import EvidenceExtractor
+from workpilot.evidence.quality import EvidenceQualityError, EvidenceQualityPolicy
 from workpilot.evidence.store import EvidenceStore
 from workpilot.memory import WorkingMemory
 from workpilot.planning import (
@@ -48,6 +49,7 @@ from workpilot.synthesis.synthesizer import Synthesizer
 from workpilot.trace.journal import TraceJournal
 from workpilot.verification.citation_verifier import CitationVerifier
 from workpilot.verification.claim_support_verifier import ClaimSupportVerifier
+from workpilot.verification.source_coverage_verifier import SourceCoverageVerifier
 from workpilot.workspace.tools import WorkspaceTools
 
 
@@ -55,6 +57,7 @@ class Runtime:
     """Drive a single run while enforcing the Mission Contract."""
 
     MAX_SYNTHESIS_ATTEMPTS = 3
+    MAX_EVIDENCE_EXTRACTION_ATTEMPTS = 2
 
     def __init__(
         self,
@@ -246,31 +249,129 @@ class Runtime:
             with self._step("retrieve.evidence") as step_id:
                 if self.model_router is None and not isinstance(self.provider, StubProvider):
                     self.budget.check_model_call_allowed()
-                extractor = EvidenceExtractor(
-                    provider=self.evidence_provider,
-                    workspace=self.workspace,
-                    goal=self.contract.goal,
-                    on_model_call=lambda call: self._observe_model_call(call, step_id),
-                )
                 files = result_store.get("scan_workspace").output
-                evidences = extractor.extract_all(files)
-                for evidence in evidences:
-                    self.memory.add_evidence(evidence)
+                quality_policy = EvidenceQualityPolicy()
+                source_reports = []
+                discarded_count = 0
+                provider_error_count = 0
+                model_call_count = 0
+                repair_count = 0
+                extraction_files = files
+                quality_report = None
+
+                for extraction_attempt in range(
+                    1,
+                    self.MAX_EVIDENCE_EXTRACTION_ATTEMPTS + 1,
+                ):
+                    goal = self.contract.goal
+                    if extraction_attempt > 1:
+                        goal += (
+                            "\n\nEvidence repair instruction: return exact verbatim quotes "
+                            "and line ranges for the requested sources. Do not paraphrase."
+                        )
+                    extractor = EvidenceExtractor(
+                        provider=self.evidence_provider,
+                        workspace=self.workspace,
+                        goal=goal,
+                        on_model_call=lambda call: self._observe_model_call(
+                            call,
+                            step_id,
+                        ),
+                        starting_index=self.evidence_store.count(),
+                    )
+                    evidences = extractor.extract_all(extraction_files)
+                    for evidence in evidences:
+                        self.memory.add_evidence(evidence)
+                    source_reports.extend(extractor.get_source_reports())
+                    discarded_count += len(extractor.get_discarded())
+                    provider_error_count += len(extractor.get_provider_errors())
+                    model_call_count += len(extractor.get_model_calls())
+
+                    quality_report = quality_policy.evaluate(
+                        scanned_source_ids=files,
+                        source_reports=source_reports,
+                        accepted_evidence_count=self.evidence_store.count(),
+                    )
+                    self.trace.append(
+                        event_type="evidence_quality_evaluated",
+                        data={
+                            "attempt": extraction_attempt,
+                            "passed": quality_report.passed,
+                            "scanned_source_count": (
+                                quality_report.scanned_source_count
+                            ),
+                            "reported_source_count": (
+                                quality_report.reported_source_count
+                            ),
+                            "accepted_evidence_count": (
+                                quality_report.accepted_evidence_count
+                            ),
+                            "candidate_count": quality_report.candidate_count,
+                            "discarded_count": quality_report.discarded_count,
+                            "repair_source_count": len(
+                                quality_report.repair_source_ids
+                            ),
+                            "failed_check_ids": [
+                                check.check_id
+                                for check in quality_report.checks
+                                if check.status == "failed"
+                            ],
+                            "warning_check_ids": [
+                                check.check_id
+                                for check in quality_report.checks
+                                if check.severity == "warning"
+                            ],
+                        },
+                        step_id=step_id,
+                        parent_step_id="run",
+                    )
+                    if quality_report.passed:
+                        break
+                    extraction_files = quality_report.repair_source_ids
+                    if not extraction_files:
+                        break
+                    if extraction_attempt < self.MAX_EVIDENCE_EXTRACTION_ATTEMPTS:
+                        repair_count += 1
+                        self.trace.append(
+                            event_type="evidence_repair_requested",
+                            data={
+                                "attempt": extraction_attempt,
+                                "source_count": len(extraction_files),
+                                "reason_check_ids": sorted(
+                                    {
+                                        check.check_id
+                                        for check in quality_report.checks
+                                        if check.status == "failed"
+                                    }
+                                ),
+                            },
+                            step_id=step_id,
+                            parent_step_id="run",
+                        )
+
+                if quality_report is None or not quality_report.passed:
+                    if quality_report is None:
+                        raise RuntimeError("Evidence quality report was not produced")
+                    raise EvidenceQualityError(quality_report)
                 self.trace.append(
                     event_type="evidence_extracted",
                     data={
-                        "count": len(evidences),
-                        "discarded": len(extractor.get_discarded()),
-                        "model_call_count": len(extractor.get_model_calls()),
-                        "provider_errors": extractor.get_provider_errors(),
+                        "count": self.evidence_store.count(),
+                        "discarded": discarded_count,
+                        "model_call_count": model_call_count,
+                        "provider_error_count": provider_error_count,
+                        "repair_count": repair_count,
+                        "quality_gate": "passed",
                     },
                     step_id=step_id,
                     parent_step_id="run",
                 )
                 return {
-                    "evidence_count": len(evidences),
-                    "discarded_count": len(extractor.get_discarded()),
-                    "provider_error_count": len(extractor.get_provider_errors()),
+                    "evidence_count": self.evidence_store.count(),
+                    "discarded_count": discarded_count,
+                    "provider_error_count": provider_error_count,
+                    "repair_count": repair_count,
+                    "source_count": quality_report.scanned_source_count,
                 }
 
         self._bind_runtime_handler(
@@ -283,6 +384,9 @@ class Runtime:
             workspace=self.workspace,
         )
         claim_support_verifier = ClaimSupportVerifier(
+            evidence_store=self.evidence_store,
+        )
+        source_coverage_verifier = SourceCoverageVerifier(
             evidence_store=self.evidence_store,
         )
 
@@ -375,8 +479,13 @@ class Runtime:
                 claim_results = claim_support_verifier.verify(
                     project_snapshot=project_snapshot,
                 )
+                source_coverage_results = source_coverage_verifier.verify(
+                    project_snapshot=project_snapshot,
+                )
                 citation_results = citation_verifier.verify(artifacts=artifacts)
-                results = claim_results + citation_results
+                results = (
+                    claim_results + source_coverage_results + citation_results
+                )
                 current_errors = [
                     result
                     for result in results
@@ -390,6 +499,9 @@ class Runtime:
                         "status": "failed" if current_errors else "passed",
                         "error_count": len(current_errors),
                         "claim_check_count": len(claim_results),
+                        "source_coverage_check_count": len(
+                            source_coverage_results
+                        ),
                         "citation_check_count": len(citation_results),
                     },
                     step_id=step_id,

@@ -60,7 +60,13 @@ class RevisionProvider(LLMProvider):
                         claim_type=ClaimType.EXPLICIT_FACT,
                         category=ClaimCategory.CONTEXT,
                         evidence_refs=[evidence_ref],
-                    )
+                    ),
+                    ClaimDraft(
+                        text="# 周会纪要 2026-06-23",
+                        claim_type=ClaimType.EXPLICIT_FACT,
+                        category=ClaimCategory.CONTEXT,
+                        evidence_refs=["E-0002"],
+                    ),
                 ]
             ),
             generations=(

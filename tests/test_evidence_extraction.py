@@ -150,3 +150,27 @@ def test_multiple_evidence_types_extracted(extractor: EvidenceExtractor) -> None
 
     types_found = {ev.evidence_type for ev in evidences}
     assert len(types_found) >= 2, f"Expected multiple types, got: {types_found}"
+
+
+def test_extractor_reports_per_source_acceptance(extractor: EvidenceExtractor) -> None:
+    files = extractor.workspace.list_files()
+
+    evidences = extractor.extract_all(files)
+    reports = extractor.get_source_reports()
+
+    assert {report.source_id for report in reports} == set(files)
+    assert sum(report.accepted_count for report in reports) == len(evidences)
+    assert all(report.read_error_type is None for report in reports)
+
+
+def test_starting_index_prevents_repair_id_collision(rich_workspace: Path) -> None:
+    extractor = EvidenceExtractor(
+        provider=StubProvider(),
+        workspace=WorkspaceTools(workspace_root=rich_workspace),
+        goal="test",
+        starting_index=7,
+    )
+
+    evidences = extractor.extract_all(["meeting_notes.md"])
+
+    assert evidences[0].evidence_id == "E-0008"
