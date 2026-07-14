@@ -16,7 +16,6 @@ from workpilot.domain import (
     ClaimCategory,
     ClaimType,
     Evidence,
-    SupportedText,
     SourceLocator,
 )
 from workpilot.evidence.store import EvidenceStore
@@ -120,6 +119,24 @@ def test_action_claim_draft_requires_structured_fields() -> None:
         )
 
 
+def test_action_field_value_requires_its_evidence_refs() -> None:
+    with pytest.raises(ValidationError, match="owner requires evidence references"):
+        ActionItemDraft(owner="李四")
+
+
+def test_model_facing_business_fields_use_flat_json_schema() -> None:
+    schema = ClaimDraftCollection.model_json_schema()
+    action_properties = schema["$defs"]["ActionItemDraft"]["properties"]
+    risk_properties = schema["$defs"]["RiskDraft"]["properties"]
+
+    assert "$ref" not in action_properties["owner"]
+    assert "$ref" not in action_properties["due_date_text"]
+    assert "$ref" not in risk_properties["owner"]
+    assert "$ref" not in risk_properties["mitigation"]
+    assert "owner_evidence_refs" in action_properties
+    assert "mitigation_evidence_refs" in risk_properties
+
+
 def test_provider_builder_materializes_supported_action_and_risk() -> None:
     store = EvidenceStore(run_id="run-1")
     store.insert(
@@ -148,14 +165,10 @@ def test_provider_builder_materializes_supported_action_and_risk() -> None:
                     category=ClaimCategory.ACTION_ITEM,
                     evidence_refs=["E-0001"],
                     action_item=ActionItemDraft(
-                        owner=SupportedText(
-                            value="李四",
-                            evidence_refs=["E-0001"],
-                        ),
-                        due_date_text=SupportedText(
-                            value="2026-07-18",
-                            evidence_refs=["E-0001"],
-                        ),
+                        owner="李四",
+                        owner_evidence_refs=["E-0001"],
+                        due_date_text="2026-07-18",
+                        due_date_evidence_refs=["E-0001"],
                     ),
                 ),
                 ClaimDraft(
@@ -164,14 +177,10 @@ def test_provider_builder_materializes_supported_action_and_risk() -> None:
                     category=ClaimCategory.RISK,
                     evidence_refs=["E-0002"],
                     risk=RiskDraft(
-                        owner=SupportedText(
-                            value="李四",
-                            evidence_refs=["E-0002"],
-                        ),
-                        mitigation=SupportedText(
-                            value="降级发布",
-                            evidence_refs=["E-0002"],
-                        ),
+                        owner="李四",
+                        owner_evidence_refs=["E-0002"],
+                        mitigation="降级发布",
+                        mitigation_evidence_refs=["E-0002"],
                     ),
                 ),
             ]

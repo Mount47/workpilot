@@ -35,6 +35,8 @@ Rules:
 - Categories: progress, decision, risk, blocker, action_item, context, requirement_change.
 - For every supported action_item claim, populate action_item fields in the same object.
 - For every supported risk or blocker claim, populate risk fields in the same object.
+- owner, due_date_text, and mitigation are strings or null, never nested objects.
+- Every non-null business field must include its matching *_evidence_refs list.
 - owner, due_date_text, and mitigation values must be exact substrings of their cited evidence.
 - Field evidence refs must also appear in the parent claim evidence_refs.
 - If a field is not explicit in evidence, set its value to null and refs to [].
@@ -46,32 +48,73 @@ Rules:
 class ActionItemDraft(BaseModel):
     """Model-produced action fields before stable entity IDs are assigned."""
 
-    owner: SupportedText = Field(default_factory=SupportedText)
-    due_date_text: SupportedText = Field(default_factory=SupportedText)
+    owner: str | None = None
+    owner_evidence_refs: list[str] = Field(default_factory=list)
+    due_date_text: str | None = None
+    due_date_evidence_refs: list[str] = Field(default_factory=list)
     status: ActionStatus = ActionStatus.UNKNOWN
     status_evidence_refs: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_status_support(self) -> "ActionItemDraft":
+    def validate_field_support(self) -> "ActionItemDraft":
+        self.owner = self._validate_text_pair(
+            self.owner,
+            self.owner_evidence_refs,
+            "owner",
+        )
+        self.due_date_text = self._validate_text_pair(
+            self.due_date_text,
+            self.due_date_evidence_refs,
+            "due_date_text",
+        )
         if self.status == ActionStatus.UNKNOWN and self.status_evidence_refs:
             raise ValueError("unknown action status cannot cite evidence")
         if self.status != ActionStatus.UNKNOWN and not self.status_evidence_refs:
             raise ValueError("known action status requires evidence references")
         return self
 
+    @staticmethod
+    def _validate_text_pair(
+        value: str | None,
+        evidence_refs: list[str],
+        field_name: str,
+    ) -> str | None:
+        if value is None:
+            if evidence_refs:
+                raise ValueError(f"null {field_name} cannot cite evidence")
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{field_name} cannot be blank")
+        if not evidence_refs:
+            raise ValueError(f"non-null {field_name} requires evidence references")
+        return normalized
+
 
 class RiskDraft(BaseModel):
     """Model-produced risk fields before stable entity IDs are assigned."""
 
-    owner: SupportedText = Field(default_factory=SupportedText)
+    owner: str | None = None
+    owner_evidence_refs: list[str] = Field(default_factory=list)
     severity: RiskLevel = RiskLevel.UNKNOWN
     severity_evidence_refs: list[str] = Field(default_factory=list)
     status: RiskStatus = RiskStatus.UNKNOWN
     status_evidence_refs: list[str] = Field(default_factory=list)
-    mitigation: SupportedText = Field(default_factory=SupportedText)
+    mitigation: str | None = None
+    mitigation_evidence_refs: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_enum_support(self) -> "RiskDraft":
+        self.owner = ActionItemDraft._validate_text_pair(
+            self.owner,
+            self.owner_evidence_refs,
+            "owner",
+        )
+        self.mitigation = ActionItemDraft._validate_text_pair(
+            self.mitigation,
+            self.mitigation_evidence_refs,
+            "mitigation",
+        )
         if self.severity == RiskLevel.UNKNOWN and self.severity_evidence_refs:
             raise ValueError("unknown risk severity cannot cite evidence")
         if self.severity != RiskLevel.UNKNOWN and not self.severity_evidence_refs:
@@ -251,10 +294,18 @@ class ClaimBuilder:
                         action_id=f"A-{len(action_items) + 1:04d}",
                         claim_id=claim_id,
                         description=claim_text,
-                        owner=draft.action_item.owner,
-                        due_date_text=draft.action_item.due_date_text,
+                        owner=SupportedText(
+                            value=draft.action_item.owner,
+                            evidence_refs=draft.action_item.owner_evidence_refs,
+                        ),
+                        due_date_text=SupportedText(
+                            value=draft.action_item.due_date_text,
+                            evidence_refs=(
+                                draft.action_item.due_date_evidence_refs
+                            ),
+                        ),
                         due_date=self._normalize_absolute_date(
-                            draft.action_item.due_date_text.value
+                            draft.action_item.due_date_text
                         ),
                         status=draft.action_item.status,
                         status_evidence_refs=list(
@@ -269,7 +320,10 @@ class ClaimBuilder:
                         risk_id=f"R-{len(risks) + 1:04d}",
                         claim_id=claim_id,
                         description=claim_text,
-                        owner=draft.risk.owner,
+                        owner=SupportedText(
+                            value=draft.risk.owner,
+                            evidence_refs=draft.risk.owner_evidence_refs,
+                        ),
                         severity=draft.risk.severity,
                         severity_evidence_refs=list(
                             dict.fromkeys(draft.risk.severity_evidence_refs)
@@ -278,7 +332,12 @@ class ClaimBuilder:
                         status_evidence_refs=list(
                             dict.fromkeys(draft.risk.status_evidence_refs)
                         ),
-                        mitigation=draft.risk.mitigation,
+                        mitigation=SupportedText(
+                            value=draft.risk.mitigation,
+                            evidence_refs=(
+                                draft.risk.mitigation_evidence_refs
+                            ),
+                        ),
                         source_refs=evidence_refs,
                     )
                 )

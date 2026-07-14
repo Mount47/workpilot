@@ -27,6 +27,15 @@ SAFE_STRUCTURED_VALIDATION_MESSAGES = frozenset(
         "Value error, null supported text cannot cite evidence",
         "Value error, supported text value cannot be blank",
         "Value error, non-null supported text requires evidence references",
+        "Value error, null owner cannot cite evidence",
+        "Value error, owner cannot be blank",
+        "Value error, non-null owner requires evidence references",
+        "Value error, null due_date_text cannot cite evidence",
+        "Value error, due_date_text cannot be blank",
+        "Value error, non-null due_date_text requires evidence references",
+        "Value error, null mitigation cannot cite evidence",
+        "Value error, mitigation cannot be blank",
+        "Value error, non-null mitigation requires evidence references",
     }
 )
 
