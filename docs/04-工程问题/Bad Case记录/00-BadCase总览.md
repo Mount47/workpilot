@@ -36,6 +36,7 @@
 | BC-008 | Claim 列表符号导致原文校验失败 | Verification / Model Output | 2026-07-15 | 已修复 | marker-only 与 paraphrase 测试通过 |
 | BC-009 | 修订失败丢失验证报告 | Observability / Evaluation | 2026-07-15 | 已修复 | 失败修订端到端测试通过 |
 | BC-010 | Stub 忽略章节导致实体误分类 | Evaluation / Engineering | 2026-07-15 | 已修复 | Action/Risk Entity Recall 均为 100% |
+| BC-011 | 嵌套字段 Schema 阻塞 qwen 输出 | Model Output / Cost | 2026-07-15 | 修复中 | 扁平 Schema 测试通过，待真实回归 |
 
 ## 维护要求
 

@@ -147,6 +147,8 @@ call 1
 
 最终异常不包含 Raw response 或 Pydantic input，避免业务正文经异常进入 Trace。普通错误只返回路径与类型；代码白名单中的静态校验消息可以进入反馈，帮助模型区分 action/risk 嵌套对象等跨字段约束。该改造来自 BC-006 与 BC-007。
 
+如果两次输出持续出现同类 `model_type`，优先简化模型传输 Schema，而不是增加重试上限。BC-011 将业务文本字段从 SupportedText 嵌套对象改成扁平 value/refs，领域层再确定性组装。
+
 如果首轮验证已完成、后续修订异常，Runtime 会在 finally 中保存 status=`incomplete` 的最后一轮 `verification_report.json`，避免失败 Run 丢失验证指标，见 BC-009。
 
 Evidence JSON 数组解析也使用类似循环，但最终失败时返回带 `malformed_response` 的空候选结果，而 Claim 结构失败会抛出异常。两者失败语义目前不完全一致。
