@@ -11,6 +11,8 @@ class SourceExtractionReport(BaseModel):
     candidate_count: int = Field(default=0, ge=0)
     accepted_count: int = Field(default=0, ge=0)
     discarded_count: int = Field(default=0, ge=0)
+    locator_repaired_count: int = Field(default=0, ge=0)
+    discard_reason_counts: dict[str, int] = Field(default_factory=dict)
     provider_error_type: str | None = None
     read_error_type: str | None = None
 
@@ -34,6 +36,8 @@ class EvidenceQualityReport(BaseModel):
     accepted_evidence_count: int = Field(ge=0)
     candidate_count: int = Field(ge=0)
     discarded_count: int = Field(ge=0)
+    locator_repaired_count: int = Field(ge=0)
+    discard_reason_counts: dict[str, int] = Field(default_factory=dict)
     repair_source_ids: list[str] = Field(default_factory=list)
     checks: list[EvidenceQualityCheck] = Field(default_factory=list)
 
@@ -150,6 +154,13 @@ class EvidenceQualityPolicy:
 
         candidates = sum(report.candidate_count for report in latest.values())
         discarded = sum(report.discarded_count for report in latest.values())
+        locator_repaired = sum(
+            report.locator_repaired_count for report in latest.values()
+        )
+        discard_reasons: dict[str, int] = {}
+        for report in latest.values():
+            for reason, count in report.discard_reason_counts.items():
+                discard_reasons[reason] = discard_reasons.get(reason, 0) + count
         if accepted_evidence_count == 0:
             repair_sources.update(
                 report.source_id
@@ -198,6 +209,8 @@ class EvidenceQualityPolicy:
             accepted_evidence_count=accepted_evidence_count,
             candidate_count=candidates,
             discarded_count=discarded,
+            locator_repaired_count=locator_repaired,
+            discard_reason_counts=discard_reasons,
             repair_source_ids=sorted(repair_sources),
             checks=checks,
         )

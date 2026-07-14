@@ -172,6 +172,7 @@ class EvalRunner:
                     quality_metrics["evidence_acceptance_rate"]
                 ),
                 evidence_discard_rate=quality_metrics["evidence_discard_rate"],
+                locator_repair_count=quality_metrics["locator_repair_count"],
                 claim_source_coverage_rate=claim_source_coverage,
                 evidence_repair_trigger_count=(
                     quality_metrics["evidence_repair_trigger_count"]
@@ -220,6 +221,7 @@ class EvalRunner:
         candidates = final_quality.get("candidate_count", 0)
         accepted = final_quality.get("accepted_evidence_count", 0)
         discarded = final_quality.get("discarded_count", 0)
+        locator_repaired = final_quality.get("locator_repaired_count", 0)
         repair_trigger_count = sum(
             event["event_type"] == "evidence_repair_requested"
             for event in trace_events
@@ -260,6 +262,7 @@ class EvalRunner:
                 0.0,
             ),
             "evidence_discard_rate": cls._ratio(discarded, candidates, 0.0),
+            "locator_repair_count": locator_repaired,
             "evidence_repair_trigger_count": repair_trigger_count,
             "evidence_repair_recovered": repair_recovered,
             "repair_model_call_count": len(repair_calls),
@@ -286,6 +289,7 @@ class EvalRunner:
             source_coverage_rate=0.0,
             evidence_acceptance_rate=0.0,
             evidence_discard_rate=0.0,
+            locator_repair_count=0,
             claim_source_coverage_rate=None,
             error=error,
         )
@@ -337,6 +341,9 @@ class EvalRunner:
             ),
             evidence_discard_rate=mean(
                 result.evidence_discard_rate for result in results
+            ),
+            average_locator_repair_count=mean(
+                result.locator_repair_count for result in results
             ),
             claim_source_coverage_rate=EvalRunner._optional_mean(
                 result.claim_source_coverage_rate for result in results

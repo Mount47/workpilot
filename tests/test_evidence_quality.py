@@ -44,6 +44,8 @@ def test_quality_gate_requests_repair_when_all_candidates_are_discarded() -> Non
 
     assert report.passed is False
     assert report.repair_source_ids == ["meeting.md"]
+    assert report.locator_repaired_count == 0
+    assert report.discard_reason_counts == {}
     assert {
         check.check_id for check in report.checks if check.status == "failed"
     } == {

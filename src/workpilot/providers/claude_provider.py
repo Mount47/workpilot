@@ -20,6 +20,7 @@ from workpilot.providers.errors import ProviderCallError, classify_provider_exce
 from workpilot.providers.openai_provider import (
     EVIDENCE_EXTRACTION_SYSTEM,
     EVIDENCE_EXTRACTION_USER,
+    format_numbered_content,
 )
 
 
@@ -136,7 +137,7 @@ class ClaudeProvider(LLMProvider):
         user_prompt = EVIDENCE_EXTRACTION_USER.format(
             goal=goal,
             file_path=file_path,
-            content=content,
+            numbered_content=format_numbered_content(content),
         )
         generations: list[GenerationResult] = []
         for attempt in range(1 + self.max_retries):

@@ -14,6 +14,7 @@ class RepairingStubProvider(StubProvider):
 
     def __init__(self) -> None:
         self.attempts: dict[str, int] = {}
+        self.goals: list[str] = []
 
     def extract_evidence_from_file(
         self,
@@ -21,6 +22,7 @@ class RepairingStubProvider(StubProvider):
         content: str,
         goal: str,
     ) -> EvidenceExtractionResult:
+        self.goals.append(goal)
         attempt = self.attempts.get(file_path, 0) + 1
         self.attempts[file_path] = attempt
         if attempt == 1:
@@ -195,3 +197,6 @@ def test_runtime_repairs_invalid_evidence_before_synthesis(
     ]
     assert len(repair_events) == 1
     assert repair_events[0]["data"]["source_count"] == 2
+    repair_goals = [goal for goal in provider.goals if "repair instruction" in goal]
+    assert len(repair_goals) == 2
+    assert all("quote not found in source file=2" in goal for goal in repair_goals)

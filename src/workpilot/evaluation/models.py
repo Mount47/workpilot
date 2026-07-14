@@ -57,6 +57,7 @@ class EvalCaseResult(BaseModel):
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
+    locator_repair_count: int = 0
     claim_source_coverage_rate: float | None
     evidence_repair_trigger_count: int = 0
     evidence_repair_recovered: bool = False
@@ -81,6 +82,7 @@ class EvaluationSummary(BaseModel):
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
+    average_locator_repair_count: float
     claim_source_coverage_rate: float | None
     evidence_repair_trigger_rate: float
     evidence_repair_recovery_rate: float | None

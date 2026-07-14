@@ -112,8 +112,8 @@ def test_invalid_quote_is_discarded() -> None:
     assert "not found" in extractor.get_discarded()[0]["reason"]
 
 
-def test_invalid_line_range_is_discarded() -> None:
-    """Evidence with end_line < start_line should be discarded."""
+def test_invalid_line_range_is_deterministically_relocated() -> None:
+    """An exact quote survives a bad model locator through deterministic repair."""
     from unittest.mock import MagicMock
 
     workspace = WorkspaceTools(workspace_root=RICH_WORKSPACE)
@@ -139,8 +139,42 @@ def test_invalid_line_range_is_discarded() -> None:
     )
     evidences = extractor.extract_all(["meeting_notes.md"])
 
-    assert len(evidences) == 0
-    assert "invalid line range" in extractor.get_discarded()[0]["reason"]
+    assert len(evidences) == 1
+    assert evidences[0].start_line == 12
+    assert evidences[0].end_line == 12
+    assert evidences[0].metadata["locator_repaired"] is True
+    assert extractor.get_discarded() == []
+    report = extractor.get_source_reports()[0]
+    assert report.locator_repaired_count == 1
+
+
+def test_locator_repair_prefers_occurrence_nearest_model_line(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    source = tmp_path / "repeated.md"
+    source.write_text("same\nmiddle\nsame\n", encoding="utf-8")
+    provider = MagicMock()
+    provider.extract_evidence_from_file.return_value = EvidenceExtractionResult(
+        candidates=[
+            EvidenceCandidate(
+                evidence_id="",
+                source_file="repeated.md",
+                quote="same",
+                start_line=4,
+                end_line=4,
+            )
+        ]
+    )
+    extractor = EvidenceExtractor(
+        provider=provider,
+        workspace=WorkspaceTools(workspace_root=tmp_path),
+        goal="test",
+    )
+
+    evidences = extractor.extract_all(["repeated.md"])
+
+    assert evidences[0].start_line == 3
+    assert evidences[0].end_line == 3
 
 
 def test_multiple_evidence_types_extracted(extractor: EvidenceExtractor) -> None:
@@ -161,6 +195,7 @@ def test_extractor_reports_per_source_acceptance(extractor: EvidenceExtractor) -
     assert {report.source_id for report in reports} == set(files)
     assert sum(report.accepted_count for report in reports) == len(evidences)
     assert all(report.read_error_type is None for report in reports)
+    assert all(report.discard_reason_counts == {} for report in reports)
 
 
 def test_starting_index_prevents_repair_id_collision(rich_workspace: Path) -> None:

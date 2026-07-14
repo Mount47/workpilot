@@ -97,6 +97,10 @@ def test_extract_evidence_from_file_parses_json(mock_openai_client) -> None:
     assert candidates[0].start_line == 7
     assert candidates[1].evidence_type == "risk"
     assert len(extraction.generations) == 1
+    messages = mock_openai_client.chat.completions.create.call_args[1]["messages"]
+    assert "1 | line1" in messages[1]["content"]
+    assert "2 | line2" in messages[1]["content"]
+    assert "N |` is not part" in messages[1]["content"]
 
 
 def test_extract_evidence_strips_markdown_fences(mock_openai_client) -> None:

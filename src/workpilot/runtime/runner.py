@@ -258,17 +258,15 @@ class Runtime:
                 repair_count = 0
                 extraction_files = files
                 quality_report = None
+                repair_instruction: str | None = None
 
                 for extraction_attempt in range(
                     1,
                     self.MAX_EVIDENCE_EXTRACTION_ATTEMPTS + 1,
                 ):
                     goal = self.contract.goal
-                    if extraction_attempt > 1:
-                        goal += (
-                            "\n\nEvidence repair instruction: return exact verbatim quotes "
-                            "and line ranges for the requested sources. Do not paraphrase."
-                        )
+                    if repair_instruction is not None:
+                        goal += repair_instruction
                     extractor = EvidenceExtractor(
                         provider=self.evidence_provider,
                         workspace=self.workspace,
@@ -308,6 +306,12 @@ class Runtime:
                             ),
                             "candidate_count": quality_report.candidate_count,
                             "discarded_count": quality_report.discarded_count,
+                            "locator_repaired_count": (
+                                quality_report.locator_repaired_count
+                            ),
+                            "discard_reason_counts": (
+                                quality_report.discard_reason_counts
+                            ),
                             "repair_source_count": len(
                                 quality_report.repair_source_ids
                             ),
@@ -331,6 +335,9 @@ class Runtime:
                     if not extraction_files:
                         break
                     if extraction_attempt < self.MAX_EVIDENCE_EXTRACTION_ATTEMPTS:
+                        repair_instruction = (
+                            self._format_evidence_repair_instruction(quality_report)
+                        )
                         repair_count += 1
                         self.trace.append(
                             event_type="evidence_repair_requested",
@@ -361,6 +368,9 @@ class Runtime:
                         "model_call_count": model_call_count,
                         "provider_error_count": provider_error_count,
                         "repair_count": repair_count,
+                        "locator_repaired_count": (
+                            quality_report.locator_repaired_count
+                        ),
                         "quality_gate": "passed",
                     },
                     step_id=step_id,
@@ -371,6 +381,7 @@ class Runtime:
                     "discarded_count": discarded_count,
                     "provider_error_count": provider_error_count,
                     "repair_count": repair_count,
+                    "locator_repaired_count": quality_report.locator_repaired_count,
                     "source_count": quality_report.scanned_source_count,
                 }
 
@@ -917,3 +928,25 @@ class Runtime:
             location = f" ({result.location})" if result.location else ""
             lines.append(f"- {result.message}{location}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_evidence_repair_instruction(report) -> str:
+        """Create content-free corrective feedback from deterministic failures."""
+        reason_counts = report.discard_reason_counts
+        rendered_reasons = (
+            ", ".join(
+                f"{reason}={count}"
+                for reason, count in sorted(reason_counts.items())
+            )
+            if reason_counts
+            else "no candidate-level reason was recorded"
+        )
+        return (
+            "\n\nEvidence repair instruction (system-generated):\n"
+            "The previous extraction failed deterministic validation. "
+            f"Failure counts: {rendered_reasons}.\n"
+            "Return exact verbatim source text, including Markdown list or numeric "
+            "markers. Use the `N |` prefixes only to calculate start_line and "
+            "end_line; never include `N |` in quote. Do not paraphrase, merge "
+            "separate lines, or remove punctuation."
+        )

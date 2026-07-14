@@ -73,6 +73,7 @@ def test_eval_runner_outputs_report(
     assert report.summary.source_coverage_rate == 1.0
     assert report.summary.evidence_acceptance_rate == 1.0
     assert report.summary.evidence_discard_rate == 0.0
+    assert report.summary.average_locator_repair_count == 0.0
     assert report.summary.claim_source_coverage_rate == 1.0
     assert report.summary.evidence_repair_trigger_rate == 0.0
     assert report.summary.evidence_repair_recovery_rate is None
@@ -144,6 +145,7 @@ def test_quality_metrics_measure_only_calls_inside_repair_window() -> None:
                 "accepted_evidence_count": 3,
                 "candidate_count": 4,
                 "discarded_count": 1,
+                "locator_repaired_count": 2,
             },
         },
         {
@@ -161,6 +163,7 @@ def test_quality_metrics_measure_only_calls_inside_repair_window() -> None:
     assert metrics["source_coverage_rate"] == 1.0
     assert metrics["evidence_acceptance_rate"] == 0.75
     assert metrics["evidence_discard_rate"] == 0.25
+    assert metrics["locator_repair_count"] == 2
     assert metrics["evidence_repair_trigger_count"] == 1
     assert metrics["evidence_repair_recovered"] is True
     assert metrics["repair_model_call_count"] == 1

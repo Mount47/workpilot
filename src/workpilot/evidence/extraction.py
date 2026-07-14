@@ -1,5 +1,6 @@
 """Evidence extractor — orchestrates per-file evidence extraction with validation."""
 
+from collections import Counter
 from collections.abc import Callable
 
 from workpilot.domain import Evidence, SourceLocator
@@ -66,17 +67,26 @@ class EvidenceExtractor:
 
             accepted_count = 0
             discarded_before = len(self._discarded)
+            locator_repaired_count = 0
             for candidate in extraction.candidates:
                 validated = self._validate_and_assign_id(candidate, content)
                 if validated is not None:
                     all_evidence.append(validated)
                     accepted_count += 1
+                    locator_repaired_count += int(
+                        validated.metadata.get("locator_repaired") is True
+                    )
+            source_discarded = self._discarded[discarded_before:]
             self._source_reports.append(
                 SourceExtractionReport(
                     source_id=file_path,
                     candidate_count=len(extraction.candidates),
                     accepted_count=accepted_count,
-                    discarded_count=len(self._discarded) - discarded_before,
+                    discarded_count=len(source_discarded),
+                    locator_repaired_count=locator_repaired_count,
+                    discard_reason_counts=dict(
+                        Counter(item["reason"] for item in source_discarded)
+                    ),
                     provider_error_type=extraction.error_type,
                 )
             )
@@ -113,29 +123,70 @@ class EvidenceExtractor:
             self._discard(candidate, "quote not found in source file")
             return None
 
-        if candidate.start_line < 1 or candidate.end_line < candidate.start_line:
-            self._discard(candidate, "invalid line range")
-            return None
+        quote = candidate.quote.strip()
+        locator_valid = (
+            candidate.start_line >= 1
+            and candidate.end_line >= candidate.start_line
+            and candidate.end_line <= len(lines)
+        )
+        if locator_valid:
+            line_window = "\n".join(
+                lines[candidate.start_line - 1 : candidate.end_line]
+            )
+            locator_valid = quote in line_window
 
-        if candidate.end_line > len(lines):
-            self._discard(candidate, "end_line exceeds file length")
-            return None
-
-        line_window = "\n".join(lines[candidate.start_line - 1 : candidate.end_line])
-        if candidate.quote.strip() not in line_window:
-            self._discard(candidate, "quote not found within specified line range")
-            return None
+        locator_repaired = not locator_valid
+        if locator_repaired:
+            start_line, end_line = self._locate_exact_quote(
+                source_content,
+                quote,
+                preferred_line=candidate.start_line,
+            )
+        else:
+            start_line, end_line = candidate.start_line, candidate.end_line
 
         self._counter += 1
         return Evidence(
             evidence_id=f"E-{self._counter:04d}",
             locator=SourceLocator.for_file_lines(
                 source_file=candidate.source_file,
-                start_line=candidate.start_line,
-                end_line=candidate.end_line,
+                start_line=start_line,
+                end_line=end_line,
             ),
-            quote=candidate.quote.strip(),
+            quote=quote,
             evidence_type=candidate.evidence_type,
+            metadata=(
+                {
+                    "locator_repaired": True,
+                    "original_start_line": candidate.start_line,
+                    "original_end_line": candidate.end_line,
+                }
+                if locator_repaired
+                else {}
+            ),
+        )
+
+    @staticmethod
+    def _locate_exact_quote(
+        source_content: str,
+        quote: str,
+        *,
+        preferred_line: int,
+    ) -> tuple[int, int]:
+        """Locate an exact quote, preferring the occurrence nearest model output."""
+        occurrences: list[tuple[int, int]] = []
+        offset = source_content.find(quote)
+        while offset >= 0:
+            start_line = source_content.count("\n", 0, offset) + 1
+            end_offset = offset + len(quote) - 1
+            end_line = source_content.count("\n", 0, end_offset) + 1
+            occurrences.append((start_line, end_line))
+            offset = source_content.find(quote, offset + 1)
+        if not occurrences:
+            raise ValueError("exact quote must exist before locator repair")
+        return min(
+            occurrences,
+            key=lambda location: abs(location[0] - preferred_line),
         )
 
     def _discard(self, candidate: EvidenceCandidate, reason: str) -> None:

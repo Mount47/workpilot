@@ -26,6 +26,8 @@ Rules:
 - Each quote must be an EXACT substring of the source file content.
 - Classify each piece of evidence by type: progress, decision, risk, blocker, action_item, context, requirement_change.
 - Include the exact line numbers (1-indexed) where the quote appears.
+- Source lines are prefixed with `N |` for location only. Never include this prefix in quote.
+- Preserve Markdown list markers such as `- ` and numeric markers such as `1. ` in quote.
 - If the file has no useful evidence for the goal, return an empty list.
 
 Respond with a JSON array of objects:
@@ -44,10 +46,18 @@ EVIDENCE_EXTRACTION_USER = """Goal: {goal}
 
 File: {file_path}
 
-Content:
-{content}
+Numbered source content (`N |` is not part of the source text):
+{numbered_content}
 
 Extract evidence relevant to the goal. Return a JSON array."""
+
+
+def format_numbered_content(content: str) -> str:
+    """Add stable visual line numbers without changing the source itself."""
+    return "\n".join(
+        f"{line_number} | {line}"
+        for line_number, line in enumerate(content.splitlines(), start=1)
+    )
 
 
 class OpenAIProvider(LLMProvider):
@@ -138,7 +148,7 @@ class OpenAIProvider(LLMProvider):
         user_prompt = EVIDENCE_EXTRACTION_USER.format(
             goal=goal,
             file_path=file_path,
-            content=content,
+            numbered_content=format_numbered_content(content),
         )
         generations: list[GenerationResult] = []
 
