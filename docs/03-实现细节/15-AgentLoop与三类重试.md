@@ -87,6 +87,8 @@ SerialDAGScheduler 每轮：
 ```text
 scan_workspace
   -> extract_evidence
+     -> quality gate
+     -> bounded evidence repair when necessary
   -> build_claims
   -> render_artifacts
   -> verify
@@ -123,7 +125,7 @@ artifacts.render
 verification.run
 ```
 
-Workspace 扫描和 Evidence 抽取不会因 Claim 验证失败而重复，避免不必要调用。代价是：如果根因来自 Evidence 召回不足，当前修订循环无法补救。
+Workspace 扫描和 Evidence 抽取不会因 Claim 验证失败而整体重复。Evidence 自身的 quote、行号、Provider 和全局空结果问题会在 Claims 生成前进入独立的有界修复；语义召回不足目前仍不能自动补救。
 
 ## 第四层：结构化输出重试
 
@@ -179,8 +181,9 @@ RetryPolicy 使用有上限的指数退避，每次物理尝试前重新检查 R
 | Transport Retry | 超时、网络、限流、服务端错误 | 不变 | ModelRouter / RetryPolicy | Route 默认 3 attempts |
 | Structured Retry | JSON/Pydantic 失败 | 当前基本不变 | Provider Adapter | 1 retry |
 | Business Revision | Claim/Citation error | 增加验证反馈 | Runtime | 总计 3 synthesis attempts |
+| Evidence Repair | 来源读取/Provider/候选接受门禁失败 | 增加精确 quote 与行号修复指令 | Runtime Evidence Gate | 总计 2 extraction attempts |
 
-Evidence Candidate 因 quote 或 locator 校验失败被丢弃，不属于以上三类，当前不会触发再次调用模型。
+Evidence Candidate 因 quote 或 locator 校验失败被丢弃，不属于原有三类。现在某来源候选全部丢弃时，只对该来源额外调用一次模型。
 
 ## 终止条件
 
@@ -220,6 +223,7 @@ total tokens: 3682
 - 根据 Plan dependencies 决定步骤可执行性；
 - 通过 Registry 选择和调用工具；
 - 根据验证结果决定是否重入部分步骤；
+- 根据证据门禁决定是否定向重提取问题来源；
 - 能在 Provider 失败时按策略重试或切换；
 - 使用 Working Memory 传递 Evidence、Snapshot 和修订反馈；
 - 所有决策进入 Trace。
@@ -228,7 +232,7 @@ total tokens: 3682
 
 - RuntimePlanPolicy 固定六个步骤；
 - 信息不足时不会动态插入 Evidence Retrieval；
-- Evidence 召回不足不会触发计划调整；
+- Evidence 格式和接受失败可触发一次修复，语义召回不足不会触发计划调整；
 - 修订仍重建整个 Snapshot；
 - 没有错误类型到修复动作的规则映射；
 - 没有持久化 Checkpoint 和跨进程恢复。
@@ -240,7 +244,7 @@ total tokens: 3682
 ## 下一步演进
 
 1. 将结构化盲重试升级为带校验反馈的 repair；
-2. 增加 Evidence Acceptance 与 Source Coverage Gate；
+2. 将已实现的 Evidence Acceptance 与 Source Coverage Gate 纳入评测；
 3. 根据错误类型选择补检索、重定位、删 Claim 或展示冲突；
 4. 保存 attempt 级 Diff 和 Checkpoint；
 5. 评测证明收益后，再放宽动态步骤集合。
