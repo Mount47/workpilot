@@ -2,7 +2,7 @@
 
 ## 元信息
 
-- 状态：修复中
+- 状态：已回归验证
 - 首次发现：2026-07-14
 - 最后更新：2026-07-14
 - 主要分类：AGENT_LOOP
@@ -76,7 +76,7 @@ run_failed
 5. Trace 和 Eval 增加 locator 修复次数与原因分布；
 6. 仍保持最多一次 Repair。
 
-真实模型尚未复跑，因此状态保持“修复中”。
+真实模型回归已经完成。最终 15 个 Candidate 全部接受，没有触发模型 Repair；Locator Repair Count 也为 0，说明本次主要收益来自输入行号视图和更明确的 marker 约束，而不是运行时重定位兜底。
 
 ## 回归测试
 
@@ -84,7 +84,24 @@ run_failed
 
 ## 真实场景复跑
 
-本案例本身来自真实 qwen-plus 复跑。完成下一版修复后，使用独立的 `evals/BC-001真实回归.json` 在新目录再次运行，不能覆盖本次失败产物。
+已使用独立 `evals/BC-001真实回归.json` 复跑，输出保存在 `runs/qwen-plus-bc002-regression`，没有覆盖失败产物。
+
+| 指标 | 修复前 | 修复后 |
+|---|---:|---:|
+| Evidence Recall | 20% | 100% |
+| Evidence Acceptance | 23.08% | 100% |
+| Evidence Discard | 76.92% | 0% |
+| Candidate / Accepted | 13 / 3 | 15 / 15 |
+| Locator Repair Count | 未实现 | 0 |
+| Model Repair Trigger | 1 | 0 |
+| Repair Token | 862 | 0 |
+| Claim Revision | 未进入 Claim 阶段 | 1 |
+| Physical Model Calls | 3 | 4 |
+| Total Token | 2422 | 6581 |
+| Runtime Elapsed | 20.92 秒 | 47.38 秒 |
+| Final Status | failed | passed |
+
+修复后总 Token 和耗时更高，主要因为系统不再提前失败，继续完成了 Claim 生成、15 个验证错误的业务修订和最终验证。Evidence 两次调用合计 1935 Token；失败版本首次 Evidence 加 Repair 三次调用合计 2422 Token，两者不能只用 Run 总成本直接判断 Prompt 开销。
 
 ## 关联代码与提交
 
@@ -94,4 +111,4 @@ run_failed
 
 ## 面试复盘要点
 
-增加重试不等于问题得到修复。真实回归显示，通用 Repair Prompt 多消耗 862 Token，但候选接受率没有提升。我保留了 fail-closed 和次数上限，并把下一步拆成确定性 locator 修复、错误反馈 Prompt 和 attempt 差异评测，避免用无限重试掩盖模型稳定性问题。
+增加重试不等于问题得到修复。第一轮通用 Repair 多消耗 862 Token但没有提升接受率；第二版先加入模型可直接遵循的行号视图，同时保留确定性 locator 兜底和一次上限。相同 qwen-plus 回归中 15 条候选全部接受，模型 Repair 不再触发。Trace 还表明 Locator Repair Count 为 0，因此我能区分本次收益来自 Prompt 协议改善，而不是把所有成功都归因于新增代码兜底。
