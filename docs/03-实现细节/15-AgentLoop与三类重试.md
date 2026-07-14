@@ -183,7 +183,7 @@ RetryPolicy 使用有上限的指数退避，每次物理尝试前重新检查 R
 | Business Revision | Claim/Citation error | 增加验证反馈 | Runtime | 总计 3 synthesis attempts |
 | Evidence Repair | 来源读取/Provider/候选接受门禁失败 | 增加精确 quote 与行号修复指令 | Runtime Evidence Gate | 总计 2 extraction attempts |
 
-Evidence Candidate 因 quote 或 locator 校验失败被丢弃，不属于原有三类。现在某来源候选全部丢弃时，只对该来源额外调用一次模型。
+Evidence Candidate 的 exact quote 存在但 locator 错误时先由代码确定性重定位，不增加模型调用。quote 不存在等剩余失败导致某来源候选全部丢弃时，只对该来源额外调用一次模型，并携带脱敏失败原因计数。
 
 ## 终止条件
 

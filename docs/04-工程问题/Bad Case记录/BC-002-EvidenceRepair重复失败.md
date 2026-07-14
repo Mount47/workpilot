@@ -2,7 +2,7 @@
 
 ## 元信息
 
-- 状态：已定位
+- 状态：修复中
 - 首次发现：2026-07-14
 - 最后更新：2026-07-14
 - 主要分类：AGENT_LOOP
@@ -67,17 +67,20 @@ run_failed
 
 ## 最终修复
 
-尚未实施。计划按顺序验证：
+第一版修复代码与自动化测试已经完成：
 
-1. 对 exact quote 存在但 locator 错误的候选进行代码确定性重定位；
-2. Prompt 输入增加明确的行号视图；
-3. Repair Prompt 携带脱敏的失败原因计数和字段要求；
-4. 保存 attempt 级原因分布，比较修复前后变化；
-5. 仍保持最多一次 Repair，不扩大为无限循环。
+1. exact quote 存在但 locator 错误时由代码确定性重定位；
+2. 重复 quote 选择距离模型建议行号最近的位置；
+3. Prompt 输入增加 `N | source line` 行号视图；
+4. Repair Prompt 携带脱敏失败原因计数和字段要求；
+5. Trace 和 Eval 增加 locator 修复次数与原因分布；
+6. 仍保持最多一次 Repair。
+
+真实模型尚未复跑，因此状态保持“修复中”。
 
 ## 回归测试
 
-当前已有“第一次无效、第二次有效”的正向恢复测试。下一步增加“同一错误重复出现”和“确定性 locator 重定位”的测试。
+已有“第一次无效、第二次有效”、错误原因反馈、错误 locator 重定位、重复 quote 最近位置和 quote 不存在仍拒绝的测试。
 
 ## 真实场景复跑
 
@@ -87,6 +90,7 @@ run_failed
 
 - `afd0197 feat(evidence): add quality gates and bounded repair`；
 - `d088611 feat(eval): measure evidence quality and repair cost`。
+- `b489611 fix(evidence): repair locators and enrich retry feedback`。
 
 ## 面试复盘要点
 
