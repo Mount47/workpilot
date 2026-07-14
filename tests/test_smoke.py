@@ -115,14 +115,17 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
 
     # risks.json should be valid
     risks = json.loads((tmp_output / "risks.json").read_text())
-    assert risks["schema_version"] == "0.2"
+    assert risks["schema_version"] == "0.3"
     assert len(risks["risks"]) >= 1
+    assert "field_evidence" in risks["risks"][0]
 
     # action_items.json should be valid
     actions = json.loads((tmp_output / "action_items.json").read_text())
-    assert actions["schema_version"] == "0.2"
+    assert actions["schema_version"] == "0.3"
     assert len(actions["action_items"]) >= 1
     assert "source_refs" in actions["action_items"][0]
+    assert "due_date_text" in actions["action_items"][0]
+    assert "field_evidence" in actions["action_items"][0]
 
     # project_snapshot.json is the structured source of all artifacts
     snapshot = json.loads((tmp_output / "project_snapshot.json").read_text())

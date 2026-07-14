@@ -49,6 +49,7 @@ from workpilot.synthesis.synthesizer import Synthesizer
 from workpilot.trace.journal import TraceJournal
 from workpilot.verification.citation_verifier import CitationVerifier
 from workpilot.verification.claim_support_verifier import ClaimSupportVerifier
+from workpilot.verification.entity_field_verifier import EntityFieldVerifier
 from workpilot.verification.source_coverage_verifier import SourceCoverageVerifier
 from workpilot.workspace.tools import WorkspaceTools
 
@@ -400,6 +401,9 @@ class Runtime:
         source_coverage_verifier = SourceCoverageVerifier(
             evidence_store=self.evidence_store,
         )
+        entity_field_verifier = EntityFieldVerifier(
+            evidence_store=self.evidence_store,
+        )
 
         def build_claims(_: PlanStep) -> ProjectSnapshot:
             attempt = execution_context["attempt"]
@@ -493,9 +497,15 @@ class Runtime:
                 source_coverage_results = source_coverage_verifier.verify(
                     project_snapshot=project_snapshot,
                 )
+                entity_field_results = entity_field_verifier.verify(
+                    project_snapshot=project_snapshot,
+                )
                 citation_results = citation_verifier.verify(artifacts=artifacts)
                 results = (
-                    claim_results + source_coverage_results + citation_results
+                    claim_results
+                    + source_coverage_results
+                    + entity_field_results
+                    + citation_results
                 )
                 current_errors = [
                     result
@@ -513,6 +523,7 @@ class Runtime:
                         "source_coverage_check_count": len(
                             source_coverage_results
                         ),
+                        "entity_field_check_count": len(entity_field_results),
                         "citation_check_count": len(citation_results),
                     },
                     step_id=step_id,

@@ -5,6 +5,7 @@ from workpilot.domain import (
     ClaimCategory,
     ClaimType,
     ProjectSnapshot,
+    Risk,
 )
 from workpilot.providers.stub import StubProvider
 from workpilot.synthesis.synthesizer import Synthesizer
@@ -40,10 +41,19 @@ def test_display_text_removes_numeric_marker_but_not_business_text() -> None:
 
 
 def test_structured_titles_drop_marker_while_description_stays_exact() -> None:
+    claim = _claim("- 服务被阻塞。", ClaimCategory.RISK)
     snapshot = ProjectSnapshot(
         project_id="project",
         snapshot_id="snapshot",
-        claims=[_claim("- 服务被阻塞。", ClaimCategory.RISK)],
+        claims=[claim],
+        risks=[
+            Risk(
+                risk_id="R-0001",
+                claim_id=claim.claim_id,
+                description=claim.text,
+                source_refs=claim.evidence_refs,
+            )
+        ],
     )
 
     risks = Synthesizer(StubProvider())._render_risks(snapshot)

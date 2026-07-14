@@ -54,6 +54,12 @@ class EvalCaseResult(BaseModel):
     citation_validity_rate: float | None
     claim_support_rate: float | None
     unsupported_claim_rate: float | None
+    entity_field_support_rate: float | None
+    action_owner_population_rate: float | None
+    action_due_date_population_rate: float | None
+    risk_owner_population_rate: float | None
+    risk_severity_population_rate: float | None
+    risk_mitigation_population_rate: float | None
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
@@ -79,6 +85,12 @@ class EvaluationSummary(BaseModel):
     citation_validity_rate: float | None
     claim_support_rate: float | None
     unsupported_claim_rate: float | None
+    entity_field_support_rate: float | None
+    action_owner_population_rate: float | None
+    action_due_date_population_rate: float | None
+    risk_owner_population_rate: float | None
+    risk_severity_population_rate: float | None
+    risk_mitigation_population_rate: float | None
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float

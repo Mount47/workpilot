@@ -177,6 +177,21 @@ def evaluate(
     typer.echo(
         f"  Claim support: {_format_optional_rate(summary.claim_support_rate)}"
     )
+    typer.echo(
+        "  Entity field support: "
+        f"{_format_optional_rate(summary.entity_field_support_rate)}"
+    )
+    typer.echo(
+        "  Action owner / due date population: "
+        f"{_format_optional_rate(summary.action_owner_population_rate)} / "
+        f"{_format_optional_rate(summary.action_due_date_population_rate)}"
+    )
+    typer.echo(
+        "  Risk owner / severity / mitigation population: "
+        f"{_format_optional_rate(summary.risk_owner_population_rate)} / "
+        f"{_format_optional_rate(summary.risk_severity_population_rate)} / "
+        f"{_format_optional_rate(summary.risk_mitigation_population_rate)}"
+    )
     typer.echo(f"  Output: {(output / 'eval_report.json').resolve()}")
 
 

@@ -138,6 +138,22 @@ class EvalRunner:
                 unsupported_claims,
                 len(support_checks),
             )
+            entity_field_checks = [
+                check
+                for check in checks
+                if check["check_id"].startswith("entity.field_")
+                and check["check_id"] != "entity.field_unknown"
+            ]
+            supported_entity_fields = sum(
+                check["check_id"] == "entity.field_supported"
+                and check["status"] == "passed"
+                for check in entity_field_checks
+            )
+            entity_field_support = self._optional_ratio(
+                supported_entity_fields,
+                len(entity_field_checks),
+            )
+            entity_population = self._entity_population(runtime.project_snapshot)
             source_coverage_checks = [
                 check
                 for check in checks
@@ -167,6 +183,8 @@ class EvalRunner:
                 citation_validity_rate=citation_validity,
                 claim_support_rate=claim_support,
                 unsupported_claim_rate=unsupported_rate,
+                entity_field_support_rate=entity_field_support,
+                **entity_population,
                 source_coverage_rate=quality_metrics["source_coverage_rate"],
                 evidence_acceptance_rate=(
                     quality_metrics["evidence_acceptance_rate"]
@@ -273,6 +291,41 @@ class EvalRunner:
             "repair_estimated_cost": repair_cost,
         }
 
+    @classmethod
+    def _entity_population(cls, snapshot) -> dict[str, float | None]:
+        if snapshot is None:
+            return {
+                "action_owner_population_rate": None,
+                "action_due_date_population_rate": None,
+                "risk_owner_population_rate": None,
+                "risk_severity_population_rate": None,
+                "risk_mitigation_population_rate": None,
+            }
+        actions = snapshot.action_items
+        risks = snapshot.risks
+        return {
+            "action_owner_population_rate": cls._optional_ratio(
+                sum(action.owner.value is not None for action in actions),
+                len(actions),
+            ),
+            "action_due_date_population_rate": cls._optional_ratio(
+                sum(action.due_date_text.value is not None for action in actions),
+                len(actions),
+            ),
+            "risk_owner_population_rate": cls._optional_ratio(
+                sum(risk.owner.value is not None for risk in risks),
+                len(risks),
+            ),
+            "risk_severity_population_rate": cls._optional_ratio(
+                sum(risk.severity.value != "unknown" for risk in risks),
+                len(risks),
+            ),
+            "risk_mitigation_population_rate": cls._optional_ratio(
+                sum(risk.mitigation.value is not None for risk in risks),
+                len(risks),
+            ),
+        }
+
     @staticmethod
     def _failed_case(case, error: str) -> EvalCaseResult:
         return EvalCaseResult(
@@ -286,6 +339,12 @@ class EvalRunner:
             citation_validity_rate=None,
             claim_support_rate=None,
             unsupported_claim_rate=None,
+            entity_field_support_rate=None,
+            action_owner_population_rate=None,
+            action_due_date_population_rate=None,
+            risk_owner_population_rate=None,
+            risk_severity_population_rate=None,
+            risk_mitigation_population_rate=None,
             source_coverage_rate=0.0,
             evidence_acceptance_rate=0.0,
             evidence_discard_rate=0.0,
@@ -332,6 +391,24 @@ class EvalRunner:
             ),
             unsupported_claim_rate=EvalRunner._optional_mean(
                 result.unsupported_claim_rate for result in results
+            ),
+            entity_field_support_rate=EvalRunner._optional_mean(
+                result.entity_field_support_rate for result in results
+            ),
+            action_owner_population_rate=EvalRunner._optional_mean(
+                result.action_owner_population_rate for result in results
+            ),
+            action_due_date_population_rate=EvalRunner._optional_mean(
+                result.action_due_date_population_rate for result in results
+            ),
+            risk_owner_population_rate=EvalRunner._optional_mean(
+                result.risk_owner_population_rate for result in results
+            ),
+            risk_severity_population_rate=EvalRunner._optional_mean(
+                result.risk_severity_population_rate for result in results
+            ),
+            risk_mitigation_population_rate=EvalRunner._optional_mean(
+                result.risk_mitigation_population_rate for result in results
             ),
             source_coverage_rate=mean(
                 result.source_coverage_rate for result in results

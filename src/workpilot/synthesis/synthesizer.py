@@ -67,47 +67,52 @@ class Synthesizer:
 
     @staticmethod
     def _render_risks(snapshot: ProjectSnapshot) -> dict:
-        risk_claims = [
-            claim
-            for claim in snapshot.claims
-            if claim.category in {ClaimCategory.RISK, ClaimCategory.BLOCKER}
-        ]
         return {
-            "schema_version": "0.2",
+            "schema_version": "0.3",
             "risks": [
                 {
-                    "risk_id": f"R-{index:04d}",
-                    "claim_id": claim.claim_id,
-                    "title": Synthesizer._display_text(claim.text)[:50],
-                    "description": claim.text,
-                    "severity": "unknown",
-                    "status": "open",
-                    "source_refs": claim.evidence_refs,
-                    "mitigation": None,
+                    "risk_id": risk.risk_id,
+                    "claim_id": risk.claim_id,
+                    "title": Synthesizer._display_text(risk.description)[:50],
+                    "description": risk.description,
+                    "owner": risk.owner.value,
+                    "severity": risk.severity.value,
+                    "status": risk.status.value,
+                    "source_refs": risk.source_refs,
+                    "mitigation": risk.mitigation.value,
+                    "field_evidence": {
+                        "owner": risk.owner.evidence_refs,
+                        "severity": risk.severity_evidence_refs,
+                        "status": risk.status_evidence_refs,
+                        "mitigation": risk.mitigation.evidence_refs,
+                    },
                 }
-                for index, claim in enumerate(risk_claims, start=1)
+                for risk in snapshot.risks
             ],
         }
 
     @staticmethod
     def _render_action_items(snapshot: ProjectSnapshot) -> dict:
-        action_claims = [
-            claim
-            for claim in snapshot.claims
-            if claim.category == ClaimCategory.ACTION_ITEM
-        ]
         return {
-            "schema_version": "0.2",
+            "schema_version": "0.3",
             "action_items": [
                 {
-                    "action_id": f"A-{index:04d}",
-                    "claim_id": claim.claim_id,
-                    "title": Synthesizer._display_text(claim.text)[:50],
-                    "owner": None,
-                    "due_date": None,
-                    "source_refs": claim.evidence_refs,
-                    "status": "open",
+                    "action_id": action.action_id,
+                    "claim_id": action.claim_id,
+                    "title": Synthesizer._display_text(action.description)[:50],
+                    "owner": action.owner.value,
+                    "due_date_text": action.due_date_text.value,
+                    "due_date": (
+                        action.due_date.isoformat() if action.due_date else None
+                    ),
+                    "source_refs": action.source_refs,
+                    "status": action.status.value,
+                    "field_evidence": {
+                        "owner": action.owner.evidence_refs,
+                        "due_date_text": action.due_date_text.evidence_refs,
+                        "status": action.status_evidence_refs,
+                    },
                 }
-                for index, claim in enumerate(action_claims, start=1)
+                for action in snapshot.action_items
             ],
         }

@@ -1,6 +1,6 @@
 """Domain models for traceable project facts and analysis results."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -148,6 +148,126 @@ class Claim(BaseModel):
         return self
 
 
+class ActionStatus(str, Enum):
+    """Normalized action lifecycle without inventing unsupported state."""
+
+    UNKNOWN = "unknown"
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+
+
+class RiskLevel(str, Enum):
+    """Explicit or deterministically derived risk level."""
+
+    UNKNOWN = "unknown"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class RiskStatus(str, Enum):
+    """Normalized risk lifecycle."""
+
+    UNKNOWN = "unknown"
+    OPEN = "open"
+    MITIGATING = "mitigating"
+    CLOSED = "closed"
+
+
+class SupportedText(BaseModel):
+    """Optional text value with field-level Evidence provenance."""
+
+    value: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_support(self) -> "SupportedText":
+        if self.value is None:
+            if self.evidence_refs:
+                raise ValueError("null supported text cannot cite evidence")
+            return self
+        if not self.value.strip():
+            raise ValueError("supported text value cannot be blank")
+        if not self.evidence_refs:
+            raise ValueError("non-null supported text requires evidence references")
+        self.value = self.value.strip()
+        self.evidence_refs = list(dict.fromkeys(self.evidence_refs))
+        return self
+
+
+class ActionItem(BaseModel):
+    """Evidence-backed project action extracted from an action Claim."""
+
+    action_id: str = Field(pattern=r"^A-\d{4,}$")
+    claim_id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    owner: SupportedText = Field(default_factory=SupportedText)
+    due_date_text: SupportedText = Field(default_factory=SupportedText)
+    due_date: date | None = None
+    status: ActionStatus = ActionStatus.UNKNOWN
+    status_evidence_refs: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_status_support(self) -> "ActionItem":
+        if self.status == ActionStatus.UNKNOWN and self.status_evidence_refs:
+            raise ValueError("unknown action status cannot cite evidence")
+        if self.status != ActionStatus.UNKNOWN and not self.status_evidence_refs:
+            raise ValueError("known action status requires evidence references")
+        return self
+
+
+class Risk(BaseModel):
+    """Evidence-backed project risk extracted from a risk or blocker Claim."""
+
+    risk_id: str = Field(pattern=r"^R-\d{4,}$")
+    claim_id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    owner: SupportedText = Field(default_factory=SupportedText)
+    severity: RiskLevel = RiskLevel.UNKNOWN
+    severity_evidence_refs: list[str] = Field(default_factory=list)
+    status: RiskStatus = RiskStatus.UNKNOWN
+    status_evidence_refs: list[str] = Field(default_factory=list)
+    mitigation: SupportedText = Field(default_factory=SupportedText)
+    source_refs: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_enum_support(self) -> "Risk":
+        if self.severity == RiskLevel.UNKNOWN and self.severity_evidence_refs:
+            raise ValueError("unknown risk severity cannot cite evidence")
+        if self.severity != RiskLevel.UNKNOWN and not self.severity_evidence_refs:
+            raise ValueError("known risk severity requires evidence references")
+        if self.status == RiskStatus.UNKNOWN and self.status_evidence_refs:
+            raise ValueError("unknown risk status cannot cite evidence")
+        if self.status != RiskStatus.UNKNOWN and not self.status_evidence_refs:
+            raise ValueError("known risk status requires evidence references")
+        return self
+
+
+class MilestoneStatus(str, Enum):
+    """Minimal milestone state for the next structured-analysis phase."""
+
+    UNKNOWN = "unknown"
+    PLANNED = "planned"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    DELAYED = "delayed"
+
+
+class Milestone(BaseModel):
+    """Versioned milestone shape; extraction is intentionally not wired yet."""
+
+    milestone_id: str = Field(pattern=r"^M-\d{4,}$")
+    name: str = Field(min_length=1)
+    planned_date: date | None = None
+    actual_date: date | None = None
+    status: MilestoneStatus = MilestoneStatus.UNKNOWN
+    source_refs: list[str] = Field(default_factory=list)
+
+
 class ProjectSnapshot(BaseModel):
     """Versioned project state assembled from validated claims."""
 
@@ -156,3 +276,6 @@ class ProjectSnapshot(BaseModel):
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source_ids: list[str] = Field(default_factory=list)
     claims: list[Claim] = Field(default_factory=list)
+    action_items: list[ActionItem] = Field(default_factory=list)
+    risks: list[Risk] = Field(default_factory=list)
+    milestones: list[Milestone] = Field(default_factory=list)

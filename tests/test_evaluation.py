@@ -75,6 +75,12 @@ def test_eval_runner_outputs_report(
     assert report.summary.evidence_discard_rate == 0.0
     assert report.summary.average_locator_repair_count == 0.0
     assert report.summary.claim_source_coverage_rate == 1.0
+    assert report.summary.entity_field_support_rate is None
+    assert report.summary.action_owner_population_rate == 0.0
+    assert report.summary.action_due_date_population_rate == 0.0
+    assert report.summary.risk_owner_population_rate == 0.0
+    assert report.summary.risk_severity_population_rate == 0.0
+    assert report.summary.risk_mitigation_population_rate == 0.0
     assert report.summary.evidence_repair_trigger_rate == 0.0
     assert report.summary.evidence_repair_recovery_rate is None
     assert report.summary.average_repair_model_call_count == 0.0
@@ -105,6 +111,8 @@ def test_eval_runner_records_missing_workspace_without_stopping(tmp_path: Path) 
     assert report.cases[0].citation_validity_rate is None
     assert report.cases[0].claim_support_rate is None
     assert report.cases[0].claim_source_coverage_rate is None
+    assert report.cases[0].entity_field_support_rate is None
+    assert report.cases[0].action_owner_population_rate is None
     assert "does not exist" in (report.cases[0].error or "")
 
 

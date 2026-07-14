@@ -6,14 +6,17 @@ import pytest
 from pydantic import ValidationError
 
 from workpilot.analysis.claim_builder import (
+    ActionItemDraft,
     ClaimBuilder,
     ClaimDraft,
     ClaimDraftCollection,
+    RiskDraft,
 )
 from workpilot.domain import (
     ClaimCategory,
     ClaimType,
     Evidence,
+    SupportedText,
     SourceLocator,
 )
 from workpilot.evidence.store import EvidenceStore
@@ -105,3 +108,86 @@ def test_claim_draft_rejects_unsupported_non_unknown_claim() -> None:
             claim_type=ClaimType.EXPLICIT_FACT,
             category=ClaimCategory.PROGRESS,
         )
+
+
+def test_action_claim_draft_requires_structured_fields() -> None:
+    with pytest.raises(ValidationError, match="requires action_item fields"):
+        ClaimDraft(
+            text="李四：输出方案。",
+            claim_type=ClaimType.EXPLICIT_FACT,
+            category=ClaimCategory.ACTION_ITEM,
+            evidence_refs=["E-0001"],
+        )
+
+
+def test_provider_builder_materializes_supported_action_and_risk() -> None:
+    store = EvidenceStore(run_id="run-1")
+    store.insert(
+        Evidence(
+            evidence_id="E-0001",
+            locator=SourceLocator.for_file_lines("meeting.md", 1, 1),
+            quote="李四：2026-07-18 输出 API 设计文档。",
+            evidence_type="action_item",
+        )
+    )
+    store.insert(
+        Evidence(
+            evidence_id="E-0002",
+            locator=SourceLocator.for_file_lines("meeting.md", 2, 2),
+            quote="李四负责风险，缓解措施为降级发布。",
+            evidence_type="risk",
+        )
+    )
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=ClaimDraftCollection(
+            claims=[
+                ClaimDraft(
+                    text="李四：2026-07-18 输出 API 设计文档。",
+                    claim_type=ClaimType.EXPLICIT_FACT,
+                    category=ClaimCategory.ACTION_ITEM,
+                    evidence_refs=["E-0001"],
+                    action_item=ActionItemDraft(
+                        owner=SupportedText(
+                            value="李四",
+                            evidence_refs=["E-0001"],
+                        ),
+                        due_date_text=SupportedText(
+                            value="2026-07-18",
+                            evidence_refs=["E-0001"],
+                        ),
+                    ),
+                ),
+                ClaimDraft(
+                    text="李四负责风险，缓解措施为降级发布。",
+                    claim_type=ClaimType.EXPLICIT_FACT,
+                    category=ClaimCategory.RISK,
+                    evidence_refs=["E-0002"],
+                    risk=RiskDraft(
+                        owner=SupportedText(
+                            value="李四",
+                            evidence_refs=["E-0002"],
+                        ),
+                        mitigation=SupportedText(
+                            value="降级发布",
+                            evidence_refs=["E-0002"],
+                        ),
+                    ),
+                ),
+            ]
+        ),
+        generations=(GenerationResult(content="{}", provider="test", model="test"),),
+    )
+
+    snapshot = ClaimBuilder(provider).build(
+        project_id="project-1",
+        snapshot_id="snapshot-1",
+        goal="生成项目报告",
+        evidence_store=store,
+    )
+
+    assert snapshot.action_items[0].owner.value == "李四"
+    assert snapshot.action_items[0].due_date_text.value == "2026-07-18"
+    assert snapshot.action_items[0].due_date.isoformat() == "2026-07-18"
+    assert snapshot.risks[0].owner.value == "李四"
+    assert snapshot.risks[0].mitigation.value == "降级发布"
