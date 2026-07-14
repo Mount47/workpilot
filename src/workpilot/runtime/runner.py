@@ -104,6 +104,7 @@ class Runtime:
         self.plan: Plan | None = None
         self.writer = ArtifactWriter(output_dir=output_dir)
         self.project_snapshot: ProjectSnapshot | None = None
+        self._latest_verification_results: list = []
         self.budget = ExecutionBudget(
             max_steps=self.contract.max_steps,
             token_budget=self.contract.token_budget,
@@ -175,6 +176,26 @@ class Runtime:
             )
         finally:
             self.memory.update_budget(self.budget.snapshot())
+            verification_path = self.output_dir / "verification_report.json"
+            if self._latest_verification_results and not verification_path.exists():
+                verification_errors = [
+                    result
+                    for result in self._latest_verification_results
+                    if result.status == "failed" and result.severity == "error"
+                ]
+                self.writer.write_json(
+                    "verification_report.json",
+                    {
+                        "status": "incomplete",
+                        "checks": [
+                            result.to_dict()
+                            for result in self._latest_verification_results
+                        ],
+                        "error_count": len(verification_errors),
+                        "total_checks": len(self._latest_verification_results),
+                    },
+                )
+                self.memory.record_artifacts(["verification_report.json"])
             self.memory.record_artifacts(["run_context.json", "trace.json"])
             self.trace.append(
                 event_type="budget_summary",
@@ -442,6 +463,9 @@ class Runtime:
                     data={
                         "attempt": attempt,
                         "claim_count": len(self.project_snapshot.claims),
+                        "claim_text_repair_count": (
+                            builder.get_claim_text_repair_count()
+                        ),
                     },
                     step_id=step_id,
                     parent_step_id="run",
@@ -507,6 +531,7 @@ class Runtime:
                     + entity_field_results
                     + citation_results
                 )
+                self._latest_verification_results = results
                 current_errors = [
                     result
                     for result in results

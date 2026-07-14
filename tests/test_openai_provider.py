@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from workpilot.providers.base import ProviderResponseError
+from workpilot.providers.base import (
+    ProviderResponseError,
+    structured_validation_feedback,
+)
 from workpilot.providers.openai_provider import OpenAIProvider
 
 
@@ -240,3 +243,21 @@ def test_structured_failure_does_not_expose_raw_response(
     assert "customer_secret" not in message
     assert "sensitive project text" not in message
     assert "value: missing" in message
+
+
+def test_structured_feedback_allows_only_fixed_safe_validator_messages() -> None:
+    from workpilot.analysis.claim_builder import ClaimDraft
+    from workpilot.domain import ClaimCategory, ClaimType
+
+    with pytest.raises(Exception) as captured:
+        ClaimDraft(
+            text="private action",
+            claim_type=ClaimType.EXPLICIT_FACT,
+            category=ClaimCategory.ACTION_ITEM,
+            evidence_refs=["E-0001"],
+        )
+
+    feedback = structured_validation_feedback(captured.value)
+
+    assert "action_item claim requires action_item fields" in feedback
+    assert "private action" not in feedback

@@ -3,10 +3,32 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from json import JSONDecodeError
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-from json import JSONDecodeError
+
+
+SAFE_STRUCTURED_VALIDATION_MESSAGES = frozenset(
+    {
+        "Value error, unknown action status cannot cite evidence",
+        "Value error, known action status requires evidence references",
+        "Value error, unknown risk severity cannot cite evidence",
+        "Value error, known risk severity requires evidence references",
+        "Value error, unknown risk status cannot cite evidence",
+        "Value error, known risk status requires evidence references",
+        "Value error, unknown claim cannot have support or derivation",
+        "Value error, non-unknown claim requires evidence references",
+        "Value error, derived fact requires a derivation",
+        "Value error, action_item claim requires action_item fields",
+        "Value error, only action_item claim can contain action_item fields",
+        "Value error, risk or blocker claim requires risk fields",
+        "Value error, only risk or blocker claim can contain risk fields",
+        "Value error, null supported text cannot cite evidence",
+        "Value error, supported text value cannot be blank",
+        "Value error, non-null supported text requires evidence references",
+    }
+)
 
 
 class EvidenceType(str, Enum):
@@ -98,7 +120,13 @@ def structured_validation_feedback(
         issues = []
         for issue in error.errors(include_url=False, include_input=False)[:12]:
             location = ".".join(str(part) for part in issue["loc"]) or "root"
-            issues.append(f"{location}: {issue['type']}")
+            safe_message = issue.get("msg")
+            detail = (
+                safe_message
+                if safe_message in SAFE_STRUCTURED_VALIDATION_MESSAGES
+                else issue["type"]
+            )
+            issues.append(f"{location}: {detail}")
         issue_summary = "; ".join(issues) or "schema_validation_failed"
     return (
         "The previous JSON response failed validation. Return the complete "

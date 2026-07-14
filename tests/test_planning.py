@@ -24,6 +24,7 @@ from workpilot.providers.base import (
     EvidenceExtractionResult,
     GenerationResult,
     LLMProvider,
+    ProviderResponseError,
     StructuredGenerationResult,
 )
 from workpilot.runtime.runner import Runtime
@@ -95,6 +96,35 @@ class RevisionProvider(LLMProvider):
                     end_line=1,
                 )
             ]
+        )
+
+
+class FailingRevisionProvider(RevisionProvider):
+    """Build once, then fail while attempting the requested revision."""
+
+    def generate_structured(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+    ) -> StructuredGenerationResult:
+        if self.claim_calls == 0:
+            return super().generate_structured(
+                prompt,
+                response_model,
+                system_prompt,
+                temperature,
+            )
+        self.claim_calls += 1
+        generation = GenerationResult(
+            content="private invalid response",
+            provider="revision",
+            model="revision",
+        )
+        raise ProviderResponseError(
+            "safe structured response failure",
+            (generation,),
         )
 
 
@@ -272,3 +302,28 @@ def test_runtime_revision_reenters_only_reentrant_plan_steps(
     assert attempts["finalize"] == 1
     context = json.loads((output / "run_context.json").read_text())
     assert context["revision_count"] == 1
+
+
+def test_failed_revision_persists_latest_verification_report(
+    basic_workspace: Path,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "failed-revision"
+    runtime = Runtime(
+        workspace_root=basic_workspace,
+        goal="生成项目报告",
+        output_dir=output,
+        provider=FailingRevisionProvider(),
+    )
+
+    result = runtime.execute()
+
+    assert result.state.value == "failed"
+    verification = json.loads(
+        (output / "verification_report.json").read_text(encoding="utf-8")
+    )
+    assert verification["status"] == "incomplete"
+    assert verification["total_checks"] > 0
+    assert verification["error_count"] > 0
+    context = json.loads((output / "run_context.json").read_text(encoding="utf-8"))
+    assert "verification_report.json" in context["artifact_names"]

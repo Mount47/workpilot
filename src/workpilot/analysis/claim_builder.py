@@ -1,5 +1,6 @@
 """Build a structured project snapshot from validated evidence."""
 
+import re
 from datetime import date
 
 from pydantic import BaseModel, Field, model_validator
@@ -134,6 +135,7 @@ class ClaimBuilder:
     def __init__(self, provider: LLMProvider) -> None:
         self.provider = provider
         self._model_calls: list[GenerationResult] = []
+        self._claim_text_repair_count = 0
 
     def build(
         self,
@@ -146,6 +148,7 @@ class ClaimBuilder:
     ) -> ProjectSnapshot:
         """Build a ProjectSnapshot from validated evidence."""
         self._model_calls = []
+        self._claim_text_repair_count = 0
         evidences = evidence_store.list_all()
         source_ids = sorted({evidence.locator.source_id for evidence in evidences})
 
@@ -176,7 +179,10 @@ class ClaimBuilder:
                 evidence_store=evidence_store,
                 feedback=feedback,
             )
-            claims, action_items, risks = self._materialize_drafts(drafts)
+            claims, action_items, risks = self._materialize_drafts(
+                drafts,
+                evidence_store,
+            )
 
         return ProjectSnapshot(
             project_id=project_id,
@@ -214,10 +220,10 @@ class ClaimBuilder:
 
         return response.value.claims
 
-    @classmethod
     def _materialize_drafts(
-        cls,
+        self,
         drafts: list[ClaimDraft],
+        evidence_store: EvidenceStore,
     ) -> tuple[list[Claim], list[ActionItem], list[Risk]]:
         claims: list[Claim] = []
         action_items: list[ActionItem] = []
@@ -225,9 +231,13 @@ class ClaimBuilder:
         for index, draft in enumerate(drafts, start=1):
             claim_id = f"C-{index:04d}"
             evidence_refs = list(dict.fromkeys(draft.evidence_refs))
+            claim_text = self._canonical_explicit_text(
+                draft,
+                evidence_store,
+            )
             claim = Claim(
                 claim_id=claim_id,
-                text=draft.text,
+                text=claim_text,
                 claim_type=draft.claim_type,
                 category=draft.category,
                 evidence_refs=evidence_refs,
@@ -240,10 +250,10 @@ class ClaimBuilder:
                     ActionItem(
                         action_id=f"A-{len(action_items) + 1:04d}",
                         claim_id=claim_id,
-                        description=draft.text,
+                        description=claim_text,
                         owner=draft.action_item.owner,
                         due_date_text=draft.action_item.due_date_text,
-                        due_date=cls._normalize_absolute_date(
+                        due_date=self._normalize_absolute_date(
                             draft.action_item.due_date_text.value
                         ),
                         status=draft.action_item.status,
@@ -258,7 +268,7 @@ class ClaimBuilder:
                     Risk(
                         risk_id=f"R-{len(risks) + 1:04d}",
                         claim_id=claim_id,
-                        description=draft.text,
+                        description=claim_text,
                         owner=draft.risk.owner,
                         severity=draft.risk.severity,
                         severity_evidence_refs=list(
@@ -273,6 +283,32 @@ class ClaimBuilder:
                     )
                 )
         return claims, action_items, risks
+
+    def _canonical_explicit_text(
+        self,
+        draft: ClaimDraft,
+        evidence_store: EvidenceStore,
+    ) -> str:
+        """Restore an Evidence list marker without accepting a paraphrase."""
+        if draft.claim_type != ClaimType.EXPLICIT_FACT:
+            return draft.text
+        normalized = self._without_list_marker(draft.text)
+        matches = []
+        for evidence_id in dict.fromkeys(draft.evidence_refs):
+            evidence = evidence_store.get_by_id(evidence_id)
+            if (
+                evidence is not None
+                and self._without_list_marker(evidence.quote) == normalized
+            ):
+                matches.append(evidence.quote)
+        if len(matches) != 1 or matches[0] == draft.text:
+            return draft.text
+        self._claim_text_repair_count += 1
+        return matches[0]
+
+    @staticmethod
+    def _without_list_marker(text: str) -> str:
+        return re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", text, count=1)
 
     @staticmethod
     def _empty_entities_from_claims(
@@ -325,6 +361,10 @@ class ClaimBuilder:
     def get_model_calls(self) -> list[GenerationResult]:
         """Return physical provider calls made by the latest build."""
         return list(self._model_calls)
+
+    def get_claim_text_repair_count(self) -> int:
+        """Return deterministic marker-only repairs made by the latest build."""
+        return self._claim_text_repair_count
 
     @staticmethod
     def _format_evidence(evidence_store: EvidenceStore) -> str:
