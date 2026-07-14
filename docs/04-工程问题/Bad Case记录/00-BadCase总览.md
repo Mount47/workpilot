@@ -26,7 +26,9 @@
 
 | ID | 标题 | 类型 | 首次发现 | 当前状态 | 回归测试 |
 |---|---|---|---|---|---|
-| BC-001 | qwen-plus 首次运行来源遗漏但 Run passed | Evidence / Verification / Agent Loop | 2026-07-14 | 修复中 | 自动化测试通过，真实模型待复跑 |
+| BC-001 | qwen-plus 首次运行来源遗漏但 Run passed | Evidence / Verification / Agent Loop | 2026-07-14 | 已回归验证 | 相同模型复跑后正确 fail closed |
+| BC-002 | Evidence Repair 重复无效候选且未恢复 | Evidence / Agent Loop | 2026-07-14 | 已定位 | 待实现带失败反馈的修复 |
+| BC-003 | 零验证检查被评测为 100% | Evaluation | 2026-07-14 | 已修复 | Optional Metric 自动化测试通过 |
 
 ## 维护要求
 

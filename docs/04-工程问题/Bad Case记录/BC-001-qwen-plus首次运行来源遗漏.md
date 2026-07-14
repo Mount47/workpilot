@@ -2,7 +2,7 @@
 
 ## 元信息
 
-- 状态：修复中
+- 状态：已回归验证
 - 首次发现：2026-07-14
 - 最后更新：2026-07-14
 - 主要分类：EVIDENCE_RETRIEVAL
@@ -130,27 +130,33 @@
 
 ## 真实场景复跑
 
-待使用相同 qwen-plus、相同 Workspace 和相同 Goal 复跑。完成前本案例保持“修复中”，不能标记为已回归验证。
+已使用相同 qwen-plus、相同 Workspace 和相同 Goal 复跑，输出目录为 `runs/qwen-plus-bc001-regression`。
+
+新 Runtime 在首次 Evidence 提取后发现一个来源候选全部被丢弃，触发一次定向 Repair；Repair 仍未恢复有效 Evidence，因此以 `evidence_quality_failed` 终止，没有继续生成 Claims 和报告。
+
+BC-001 的核心缺陷是“不完整结果仍然 passed”。复跑证明该缺陷已经修复：系统现在能够发现覆盖问题并 fail closed。Evidence Repair 本身没有成功，作为独立问题登记为 BC-002。
 
 ## 修复前后对比
 
 | 指标 | 修复前 | 修复后 |
 |---|---:|---:|
-| Source Coverage Rate | 未统计 | 待复跑 |
-| Evidence Acceptance Rate | 23.08% | 待复跑 |
-| Evidence Discard Rate | 76.92% | 待复跑 |
-| Claim Source Coverage Rate | 不完整 | 待复跑 |
-| Evidence Repair Trigger | 0 | 待复跑 |
-| Evidence Repair Recovery | 不适用 | 待复跑 |
-| Physical Model Calls | 4 | 待复跑 |
-| Total Tokens | 3682 | 待复跑 |
-| Final Status | passed，但不完整 | 待复跑 |
+| Source Coverage Rate | 未统计 | 100%（来源均产生提取报告） |
+| Evidence Recall | 未统计 | 20% |
+| Evidence Acceptance Rate | 23.08% | 23.08% |
+| Evidence Discard Rate | 76.92% | 76.92% |
+| Claim Source Coverage Rate | 不完整 | N/A，未进入 Claim 阶段 |
+| Evidence Repair Trigger | 0 | 1 |
+| Evidence Repair Recovery | 不适用 | 0% |
+| Physical Model Calls | 4 | 3 |
+| Total Tokens | 3682 | 2422 |
+| Final Status | passed，但不完整 | failed，正确阻断 |
 
 ## 关联代码与提交
 
 - `afd0197 feat(evidence): add quality gates and bounded repair`；
 - `02328b7 docs(evidence): document quality gates and repair loop`；
-- 本轮 Eval Runner 指标提交将在实现完成后补入。
+- `d088611 feat(eval): measure evidence quality and repair cost`；
+- `39d8fce docs(badcase): establish regression knowledge base`。
 
 ## 遗留问题
 
@@ -158,8 +164,9 @@
 - 尚无按 Evidence 类型的任务要求覆盖；
 - Evidence Repair 仍使用同一 Provider；
 - Planner 尚不能根据错误替换工具；
-- 真实模型修复效果和额外成本待验证。
+- Evidence Repair 未恢复，见 BC-002；
+- 模型价格未配置，因此 estimated_cost 仍为 null。
 
 ## 面试复盘要点
 
-首次真实模型链路最终 passed，但 Trace 显示 Evidence 接受率只有 23.08%，并且会议来源没有进入报告。这暴露了 Precision 通过不等于 Recall 完整的问题。我没有放宽引用校验或无限重试，而是增加了每来源质量报告、生成前双门禁、最多一次定向 Evidence Repair，以及 Evidence 到 Claim 的来源覆盖验证。自动化回归已证明错误可被发现和恢复，下一步用相同模型复跑并量化覆盖收益与 Token 成本。
+首次真实模型链路最终 passed，但 Trace 显示 Evidence 接受率只有 23.08%，并且会议来源没有进入报告。这暴露了 Precision 通过不等于 Recall 完整的问题。我没有放宽引用校验或无限重试，而是增加了每来源质量报告、生成前双门禁、最多一次定向 Repair 和来源覆盖验证。相同 qwen-plus 复跑后，系统在 Evidence 阶段正确失败，不再输出看似成功的不完整报告；同时实验也证明泛化 Repair Prompt 无法恢复该模型错误，因此继续拆出 BC-002，而不是把 fail closed 误写成业务任务已经完成。
