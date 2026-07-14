@@ -1,6 +1,7 @@
 """Run golden workspace cases through the real WorkPilot runtime."""
 
 import json
+import re
 from pathlib import Path
 from statistics import mean
 
@@ -8,8 +9,10 @@ from workpilot.artifacts.writer import ArtifactWriter
 from workpilot.evaluation.models import (
     EvalCaseResult,
     EvalSuite,
+    EntityAccuracyMetrics,
     EvaluationReport,
     EvaluationSummary,
+    PrecisionRecallMetric,
 )
 from workpilot.providers.registry import get_provider
 from workpilot.runtime.runner import Runtime
@@ -154,6 +157,10 @@ class EvalRunner:
                 len(entity_field_checks),
             )
             entity_population = self._entity_population(runtime.project_snapshot)
+            entity_accuracy = self._entity_accuracy(
+                runtime.project_snapshot,
+                case,
+            )
             source_coverage_checks = [
                 check
                 for check in checks
@@ -185,6 +192,7 @@ class EvalRunner:
                 unsupported_claim_rate=unsupported_rate,
                 entity_field_support_rate=entity_field_support,
                 **entity_population,
+                entity_accuracy=entity_accuracy,
                 source_coverage_rate=quality_metrics["source_coverage_rate"],
                 evidence_acceptance_rate=(
                     quality_metrics["evidence_acceptance_rate"]
@@ -326,6 +334,172 @@ class EvalRunner:
             ),
         }
 
+    @classmethod
+    def _entity_accuracy(cls, snapshot, case) -> EntityAccuracyMetrics:
+        if snapshot is None:
+            return EntityAccuracyMetrics()
+        action_pairs, unmatched_actions, missing_actions = cls._match_entities(
+            snapshot.action_items,
+            case.expected_action_items,
+        )
+        risk_pairs, unmatched_risks, missing_risks = cls._match_entities(
+            snapshot.risks,
+            case.expected_risks,
+        )
+        action_metric = cls._metric(
+            true_positive=len(action_pairs),
+            false_positive=(
+                len(unmatched_actions) if case.expected_entities_exhaustive else 0
+            ),
+            false_negative=len(missing_actions),
+            precision_applicable=case.expected_entities_exhaustive,
+        )
+        risk_metric = cls._metric(
+            true_positive=len(risk_pairs),
+            false_positive=(
+                len(unmatched_risks) if case.expected_entities_exhaustive else 0
+            ),
+            false_negative=len(missing_risks),
+            precision_applicable=case.expected_entities_exhaustive,
+        )
+        action_owner = cls._score_fields(
+            action_pairs,
+            missing_actions,
+            unmatched_actions if case.expected_entities_exhaustive else [],
+            expected_name="owner",
+            actual_value=lambda item: item.owner.value,
+        )
+        action_due = cls._score_fields(
+            action_pairs,
+            missing_actions,
+            unmatched_actions if case.expected_entities_exhaustive else [],
+            expected_name="due_date_text",
+            actual_value=lambda item: item.due_date_text.value,
+        )
+        risk_owner = cls._score_fields(
+            risk_pairs,
+            missing_risks,
+            unmatched_risks if case.expected_entities_exhaustive else [],
+            expected_name="owner",
+            actual_value=lambda item: item.owner.value,
+        )
+        risk_severity = cls._score_fields(
+            risk_pairs,
+            missing_risks,
+            unmatched_risks if case.expected_entities_exhaustive else [],
+            expected_name="severity",
+            actual_value=lambda item: (
+                None if item.severity.value == "unknown" else item.severity.value
+            ),
+        )
+        risk_mitigation = cls._score_fields(
+            risk_pairs,
+            missing_risks,
+            unmatched_risks if case.expected_entities_exhaustive else [],
+            expected_name="mitigation",
+            actual_value=lambda item: item.mitigation.value,
+        )
+        return EntityAccuracyMetrics(
+            action_item=action_metric,
+            risk=risk_metric,
+            action_owner=action_owner,
+            action_due_date=action_due,
+            risk_owner=risk_owner,
+            risk_severity=risk_severity,
+            risk_mitigation=risk_mitigation,
+        )
+
+    @classmethod
+    def _match_entities(cls, actual_items, expected_items):
+        remaining = list(actual_items)
+        pairs = []
+        missing = []
+        for expected in expected_items:
+            expected_key = cls._entity_key(expected.claim_text)
+            matched_index = next(
+                (
+                    index
+                    for index, actual in enumerate(remaining)
+                    if cls._entity_key(actual.description) == expected_key
+                ),
+                None,
+            )
+            if matched_index is None:
+                missing.append(expected)
+            else:
+                pairs.append((remaining.pop(matched_index), expected))
+        return pairs, remaining, missing
+
+    @staticmethod
+    def _entity_key(text: str) -> str:
+        return re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", text, count=1).strip()
+
+    @classmethod
+    def _score_fields(
+        cls,
+        pairs,
+        missing_expected,
+        unmatched_actual,
+        *,
+        expected_name: str,
+        actual_value,
+    ) -> PrecisionRecallMetric:
+        true_positive = false_positive = false_negative = 0
+        labelled_count = 0
+        for actual, expected in pairs:
+            label = getattr(expected, expected_name)
+            if label is None:
+                continue
+            labelled_count += 1
+            predicted = actual_value(actual)
+            if predicted == label.value and label.value is not None:
+                true_positive += 1
+            elif predicted is not None and label.value is None:
+                false_positive += 1
+            elif predicted is None and label.value is not None:
+                false_negative += 1
+            elif predicted != label.value:
+                false_positive += 1
+                false_negative += 1
+        for expected in missing_expected:
+            label = getattr(expected, expected_name)
+            if label is not None:
+                labelled_count += 1
+                if label.value is not None:
+                    false_negative += 1
+        false_positive += sum(
+            actual_value(actual) is not None for actual in unmatched_actual
+        )
+        if labelled_count == 0 and not unmatched_actual:
+            return PrecisionRecallMetric()
+        return cls._metric(true_positive, false_positive, false_negative)
+
+    @classmethod
+    def _metric(
+        cls,
+        true_positive: int,
+        false_positive: int,
+        false_negative: int,
+        *,
+        precision_applicable: bool = True,
+    ) -> PrecisionRecallMetric:
+        precision = (
+            cls._optional_ratio(true_positive, true_positive + false_positive)
+            if precision_applicable
+            else None
+        )
+        recall = cls._optional_ratio(
+            true_positive,
+            true_positive + false_negative,
+        )
+        return PrecisionRecallMetric(
+            precision=precision,
+            recall=recall,
+            true_positive=true_positive,
+            false_positive=false_positive,
+            false_negative=false_negative,
+        )
+
     @staticmethod
     def _failed_case(case, error: str) -> EvalCaseResult:
         return EvalCaseResult(
@@ -345,6 +519,7 @@ class EvalRunner:
             risk_owner_population_rate=None,
             risk_severity_population_rate=None,
             risk_mitigation_population_rate=None,
+            entity_accuracy=EntityAccuracyMetrics(),
             source_coverage_rate=0.0,
             evidence_acceptance_rate=0.0,
             evidence_discard_rate=0.0,
@@ -410,6 +585,7 @@ class EvalRunner:
             risk_mitigation_population_rate=EvalRunner._optional_mean(
                 result.risk_mitigation_population_rate for result in results
             ),
+            entity_accuracy=EvalRunner._summarize_entity_accuracy(results),
             source_coverage_rate=mean(
                 result.source_coverage_rate for result in results
             ),
@@ -446,3 +622,23 @@ class EvalRunner:
     def _optional_mean(values) -> float | None:
         known = [value for value in values if value is not None]
         return mean(known) if known else None
+
+    @classmethod
+    def _summarize_entity_accuracy(
+        cls,
+        results: list[EvalCaseResult],
+    ) -> EntityAccuracyMetrics:
+        fields = EntityAccuracyMetrics.model_fields
+        aggregated = {}
+        for field_name in fields:
+            metrics = [getattr(result.entity_accuracy, field_name) for result in results]
+            precision_applicable = any(
+                metric.precision is not None for metric in metrics
+            )
+            aggregated[field_name] = cls._metric(
+                sum(metric.true_positive for metric in metrics),
+                sum(metric.false_positive for metric in metrics),
+                sum(metric.false_negative for metric in metrics),
+                precision_applicable=precision_applicable,
+            )
+        return EntityAccuracyMetrics(**aggregated)

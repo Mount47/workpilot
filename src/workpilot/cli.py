@@ -192,11 +192,35 @@ def evaluate(
         f"{_format_optional_rate(summary.risk_severity_population_rate)} / "
         f"{_format_optional_rate(summary.risk_mitigation_population_rate)}"
     )
+    accuracy = summary.entity_accuracy
+    typer.echo(
+        "  Action / risk entity recall: "
+        f"{_format_optional_rate(accuracy.action_item.recall)} / "
+        f"{_format_optional_rate(accuracy.risk.recall)}"
+    )
+    typer.echo(
+        "  Action owner / due date P-R: "
+        f"{_format_precision_recall(accuracy.action_owner)} / "
+        f"{_format_precision_recall(accuracy.action_due_date)}"
+    )
+    typer.echo(
+        "  Risk owner / severity / mitigation P-R: "
+        f"{_format_precision_recall(accuracy.risk_owner)} / "
+        f"{_format_precision_recall(accuracy.risk_severity)} / "
+        f"{_format_precision_recall(accuracy.risk_mitigation)}"
+    )
     typer.echo(f"  Output: {(output / 'eval_report.json').resolve()}")
 
 
 def _format_optional_rate(value: float | None) -> str:
     return f"{value:.2%}" if value is not None else "N/A"
+
+
+def _format_precision_recall(metric) -> str:
+    return (
+        f"{_format_optional_rate(metric.precision)}-"
+        f"{_format_optional_rate(metric.recall)}"
+    )
 
 
 @app.command("providers")

@@ -6,7 +6,25 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from workpilot.evaluation import EvalCase, EvalRunner, EvalSuite, load_eval_suite
+from workpilot.domain import (
+    ActionItem,
+    Claim,
+    ClaimCategory,
+    ClaimType,
+    ProjectSnapshot,
+    Risk,
+    RiskLevel,
+    SupportedText,
+)
+from workpilot.evaluation import (
+    EvalCase,
+    EvalRunner,
+    EvalSuite,
+    ExpectedActionItem,
+    ExpectedField,
+    ExpectedRisk,
+    load_eval_suite,
+)
 
 
 def test_load_eval_suite_resolves_relative_workspace(tmp_path: Path) -> None:
@@ -33,6 +51,47 @@ def test_load_eval_suite_resolves_relative_workspace(tmp_path: Path) -> None:
     suite = load_eval_suite(suite_path)
 
     assert suite.cases[0].workspace == workspace.resolve()
+
+
+def test_expected_field_distinguishes_unlabelled_from_explicit_null(
+    tmp_path: Path,
+) -> None:
+    case = EvalCase(
+        case_id="field_labels",
+        workspace=tmp_path,
+        goal="生成报告",
+        expected_action_items=[
+            ExpectedActionItem(
+                claim_text="行动项",
+                owner=ExpectedField(value=None),
+            )
+        ],
+    )
+
+    assert case.expected_action_items[0].owner is not None
+    assert case.expected_action_items[0].owner.value is None
+    assert case.expected_action_items[0].due_date_text is None
+
+
+def test_eval_case_rejects_duplicate_entity_anchors(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="anchors must be unique"):
+        EvalCase(
+            case_id="duplicate_entities",
+            workspace=tmp_path,
+            goal="生成报告",
+            expected_action_items=[
+                ExpectedActionItem(claim_text="同一行动项"),
+                ExpectedActionItem(claim_text="同一行动项"),
+            ],
+        )
+
+
+def test_expected_risk_rejects_non_normalized_severity() -> None:
+    with pytest.raises(ValidationError, match="normalized level"):
+        ExpectedRisk(
+            claim_text="风险",
+            severity=ExpectedField(value="P1"),
+        )
 
 
 def test_eval_case_rejects_invalid_bad_case_id(tmp_path: Path) -> None:
@@ -120,6 +179,92 @@ def test_optional_metrics_do_not_treat_zero_checks_as_perfect() -> None:
     assert EvalRunner._optional_ratio(0, 0) is None
     assert EvalRunner._optional_mean([None, None]) is None
     assert EvalRunner._optional_mean([None, 0.5, 1.0]) == 0.75
+
+
+def test_entity_accuracy_scores_golden_matches_fields_and_missing_entities(
+    tmp_path: Path,
+) -> None:
+    action_text = "- 李四：输出 API 文档。"
+    risk_text = "- 发布窗口存在风险。"
+    snapshot = ProjectSnapshot(
+        project_id="project-1",
+        snapshot_id="snapshot-1",
+        claims=[
+            Claim(
+                claim_id="C-0001",
+                text=action_text,
+                claim_type=ClaimType.EXPLICIT_FACT,
+                category=ClaimCategory.ACTION_ITEM,
+                evidence_refs=["E-0001"],
+            ),
+            Claim(
+                claim_id="C-0002",
+                text=risk_text,
+                claim_type=ClaimType.EXPLICIT_FACT,
+                category=ClaimCategory.RISK,
+                evidence_refs=["E-0002"],
+            ),
+        ],
+        action_items=[
+            ActionItem(
+                action_id="A-0001",
+                claim_id="C-0001",
+                description=action_text,
+                owner=SupportedText(value="李四", evidence_refs=["E-0001"]),
+                due_date_text=SupportedText(
+                    value="本周五",
+                    evidence_refs=["E-0001"],
+                ),
+                source_refs=["E-0001"],
+            )
+        ],
+        risks=[
+            Risk(
+                risk_id="R-0001",
+                claim_id="C-0002",
+                description=risk_text,
+                owner=SupportedText(value="王五", evidence_refs=["E-0002"]),
+                severity=RiskLevel.HIGH,
+                severity_evidence_refs=["E-0002"],
+                source_refs=["E-0002"],
+            )
+        ],
+    )
+    case = EvalCase(
+        case_id="entity_metrics",
+        workspace=tmp_path,
+        goal="生成报告",
+        expected_entities_exhaustive=True,
+        expected_action_items=[
+            ExpectedActionItem(
+                claim_text="李四：输出 API 文档。",
+                owner=ExpectedField(value="李四"),
+                due_date_text=ExpectedField(value=None),
+            ),
+            ExpectedActionItem(
+                claim_text="张三：执行回归。",
+                owner=ExpectedField(value="张三"),
+            ),
+        ],
+        expected_risks=[
+            ExpectedRisk(
+                claim_text="发布窗口存在风险。",
+                owner=ExpectedField(value="王五"),
+                severity=ExpectedField(value=None),
+            )
+        ],
+    )
+
+    metrics = EvalRunner._entity_accuracy(snapshot, case)
+
+    assert metrics.action_item.precision == 1.0
+    assert metrics.action_item.recall == 0.5
+    assert metrics.action_owner.precision == 1.0
+    assert metrics.action_owner.recall == 0.5
+    assert metrics.action_due_date.false_positive == 1
+    assert metrics.risk_owner.precision == 1.0
+    assert metrics.risk_owner.recall == 1.0
+    assert metrics.risk_severity.false_positive == 1
 
 
 def test_quality_metrics_measure_only_calls_inside_repair_window() -> None:

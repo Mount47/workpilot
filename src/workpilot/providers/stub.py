@@ -53,13 +53,17 @@ class StubProvider(LLMProvider):
 
         evidences: list[EvidenceCandidate] = []
         evidence_counter = 0
+        current_section = ""
 
         for i, line in enumerate(lines, start=1):
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
+                continue
+            if stripped.startswith("#"):
+                current_section = stripped.lstrip("#").strip()
                 continue
 
-            ev_type = self._classify_line(stripped)
+            ev_type = self._classify_line(stripped, current_section)
             if ev_type is None:
                 continue
 
@@ -90,9 +94,13 @@ class StubProvider(LLMProvider):
         return EvidenceExtractionResult(candidates=evidences)
 
     @staticmethod
-    def _classify_line(line: str) -> str | None:
+    def _classify_line(line: str, section: str = "") -> str | None:
         """Classify a line by keyword matching. Returns evidence type or None."""
         lower = line.lower()
+        normalized_section = section.strip().lower()
+
+        if normalized_section in {"下一步", "行动项", "待办"}:
+            return EvidenceType.ACTION_ITEM
 
         risk_signals = ["blocked", "告警", "风险", "delay", "阻塞", "上升", "失败"]
         if any(s in lower for s in risk_signals):

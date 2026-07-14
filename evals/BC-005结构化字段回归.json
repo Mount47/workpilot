@@ -1,0 +1,61 @@
+{
+  "name": "WorkPilot BC-005 结构化实体字段回归",
+  "version": "0.1",
+  "cases": [
+    {
+      "case_id": "bc005_structured_entity_fields",
+      "workspace": "../tests/fixtures/workspaces/basic_project",
+      "goal": "生成本周项目周报",
+      "expected_status": "passed",
+      "expected_entities_exhaustive": false,
+      "bad_case_ids": ["BC-005", "BC-006", "BC-008", "BC-009"],
+      "expected_evidence_quotes": [
+        "- PROJ-101: 支付重试逻辑开发 (李四, P1, blocked — 等待 API 设计确认)",
+        "- PROJ-102: 首页改版 (王五, P0, in progress)",
+        "- PROJ-103: 线上告警排查 (张三, P2, in progress)",
+        "- PROJ-098: 用户登录流程优化 (李四, P1, done)",
+        "- PROJ-099: 商品详情页缓存优化 (王五, P1, done)",
+        "- PROJ-104: 订单导出功能 (未分配, P2, pending)",
+        "- PROJ-105: 移动端适配 (未分配, P3, pending)",
+        "1. 支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案。",
+        "2. 前端首页改版已完成设计评审，王五预计周三开始开发。",
+        "3. 线上告警频率上升，过去一周 P2 告警增加 40%，需要排查原因。",
+        "- 支付重试方案截止日期定为本周五。",
+        "- 首页改版优先级提升为 P0。",
+        "- 李四：输出支付重试 API 设计文档。",
+        "- 王五：周三启动首页改版开发。",
+        "- 张三：协调 SRE 排查告警上升原因。"
+      ],
+      "expected_action_items": [
+        {
+          "claim_text": "- 李四：输出支付重试 API 设计文档。",
+          "owner": {"value": "李四"},
+          "due_date_text": {"value": "本周五"}
+        },
+        {
+          "claim_text": "- 王五：周三启动首页改版开发。",
+          "owner": {"value": "王五"},
+          "due_date_text": {"value": "周三"}
+        },
+        {
+          "claim_text": "- 张三：协调 SRE 排查告警上升原因。",
+          "owner": {"value": "张三"},
+          "due_date_text": {"value": null}
+        }
+      ],
+      "expected_risks": [
+        {
+          "claim_text": "- PROJ-101: 支付重试逻辑开发 (李四, P1, blocked — 等待 API 设计确认)",
+          "owner": {"value": "李四"},
+          "severity": {"value": null},
+          "mitigation": {"value": null}
+        },
+        {
+          "claim_text": "3. 线上告警频率上升，过去一周 P2 告警增加 40%，需要排查原因。",
+          "severity": {"value": null},
+          "mitigation": {"value": "排查原因"}
+        }
+      ]
+    }
+  ]
+}

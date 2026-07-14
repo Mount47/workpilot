@@ -186,6 +186,32 @@ def test_multiple_evidence_types_extracted(extractor: EvidenceExtractor) -> None
     assert len(types_found) >= 2, f"Expected multiple types, got: {types_found}"
 
 
+def test_stub_classification_uses_action_section_before_risk_keywords() -> None:
+    content = """# 周会纪要
+
+## 讨论内容
+
+3. 告警频率上升，需要排查原因。
+
+## 下一步
+
+- 张三：协调 SRE 排查告警上升原因。
+"""
+
+    extraction = StubProvider().extract_evidence_from_file(
+        "meeting.md",
+        content,
+        "生成周报",
+    )
+
+    by_quote = {candidate.quote: candidate for candidate in extraction.candidates}
+    assert by_quote["3. 告警频率上升，需要排查原因。"].evidence_type == "risk"
+    assert (
+        by_quote["- 张三：协调 SRE 排查告警上升原因。"].evidence_type
+        == "action_item"
+    )
+
+
 def test_extractor_reports_per_source_acceptance(extractor: EvidenceExtractor) -> None:
     files = extractor.workspace.list_files()
 

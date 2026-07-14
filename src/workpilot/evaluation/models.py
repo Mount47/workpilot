@@ -8,6 +8,51 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from workpilot.planning import PlanDraft
 
 
+class ExpectedField(BaseModel):
+    """A deliberately labelled field; explicit null is a negative label."""
+
+    value: str | None
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("labelled field value cannot be blank")
+        return normalized
+
+
+class ExpectedActionItem(BaseModel):
+    """Golden ActionItem anchored by its exact source-backed Claim text."""
+
+    claim_text: str = Field(min_length=1)
+    owner: ExpectedField | None = None
+    due_date_text: ExpectedField | None = None
+
+
+class ExpectedRisk(BaseModel):
+    """Golden Risk anchored by its exact source-backed Claim text."""
+
+    claim_text: str = Field(min_length=1)
+    owner: ExpectedField | None = None
+    severity: ExpectedField | None = None
+    mitigation: ExpectedField | None = None
+
+    @model_validator(mode="after")
+    def validate_severity(self) -> "ExpectedRisk":
+        if self.severity is not None and self.severity.value not in {
+            None,
+            "low",
+            "medium",
+            "high",
+            "critical",
+        }:
+            raise ValueError("expected risk severity must use a normalized level")
+        return self
+
+
 class EvalCase(BaseModel):
     """A single workspace task with manually defined expected evidence."""
 
@@ -15,6 +60,9 @@ class EvalCase(BaseModel):
     workspace: Path
     goal: str = Field(min_length=1)
     expected_evidence_quotes: list[str] = Field(default_factory=list)
+    expected_action_items: list[ExpectedActionItem] = Field(default_factory=list)
+    expected_risks: list[ExpectedRisk] = Field(default_factory=list)
+    expected_entities_exhaustive: bool = False
     expected_status: Literal["passed", "failed"] = "passed"
     bad_case_ids: list[str] = Field(default_factory=list)
 
@@ -32,6 +80,17 @@ class EvalCase(BaseModel):
             raise ValueError("bad_case_ids must not contain duplicates")
         return values
 
+    @model_validator(mode="after")
+    def validate_entity_anchors(self) -> "EvalCase":
+        for name, entities in (
+            ("expected_action_items", self.expected_action_items),
+            ("expected_risks", self.expected_risks),
+        ):
+            anchors = [entity.claim_text for entity in entities]
+            if len(anchors) != len(set(anchors)):
+                raise ValueError(f"{name} claim_text anchors must be unique")
+        return self
+
 
 class EvalSuite(BaseModel):
     """A versioned collection of evaluation cases."""
@@ -39,6 +98,28 @@ class EvalSuite(BaseModel):
     name: str = Field(min_length=1)
     version: str = Field(default="0.1", min_length=1)
     cases: list[EvalCase] = Field(min_length=1)
+
+
+class PrecisionRecallMetric(BaseModel):
+    """Auditable counts and rates for one Golden-labelled target."""
+
+    precision: float | None = None
+    recall: float | None = None
+    true_positive: int = 0
+    false_positive: int = 0
+    false_negative: int = 0
+
+
+class EntityAccuracyMetrics(BaseModel):
+    """Entity detection and business-field Golden metrics."""
+
+    action_item: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    risk: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    action_owner: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    action_due_date: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    risk_owner: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    risk_severity: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
+    risk_mitigation: PrecisionRecallMetric = Field(default_factory=PrecisionRecallMetric)
 
 
 class EvalCaseResult(BaseModel):
@@ -60,6 +141,9 @@ class EvalCaseResult(BaseModel):
     risk_owner_population_rate: float | None
     risk_severity_population_rate: float | None
     risk_mitigation_population_rate: float | None
+    entity_accuracy: EntityAccuracyMetrics = Field(
+        default_factory=EntityAccuracyMetrics
+    )
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
@@ -91,6 +175,9 @@ class EvaluationSummary(BaseModel):
     risk_owner_population_rate: float | None
     risk_severity_population_rate: float | None
     risk_mitigation_population_rate: float | None
+    entity_accuracy: EntityAccuracyMetrics = Field(
+        default_factory=EntityAccuracyMetrics
+    )
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
