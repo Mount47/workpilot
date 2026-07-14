@@ -140,11 +140,12 @@ OpenAI-compatible 和 Claude Adapter 在以下情况重新调用模型：
 ```text
 call 1
   -> parse/validate failed
-  -> call 2 with essentially the same prompt
+  -> build safe field-path/error-type feedback
+  -> call 2 with previous response and correction request
   -> still failed: ProviderResponseError
 ```
 
-当前第二次调用没有携带字段级校验反馈，属于盲重试。后续应升级为 structured repair。
+最终异常不包含 Raw response 或 Pydantic input，避免业务正文经异常进入 Trace。该改造来自 BC-006 与 BC-007。
 
 Evidence JSON 数组解析也使用类似循环，但最终失败时返回带 `malformed_response` 的空候选结果，而 Claim 结构失败会抛出异常。两者失败语义目前不完全一致。
 
@@ -179,7 +180,7 @@ RetryPolicy 使用有上限的指数退避，每次物理尝试前重新检查 R
 | 类型 | 触发条件 | Prompt | 控制层 | 当前上限 |
 |---|---|---|---|---:|
 | Transport Retry | 超时、网络、限流、服务端错误 | 不变 | ModelRouter / RetryPolicy | Route 默认 3 attempts |
-| Structured Retry | JSON/Pydantic 失败 | 当前基本不变 | Provider Adapter | 1 retry |
+| Structured Retry | JSON/Pydantic 失败 | 增加脱敏 Schema 校验反馈 | Provider Adapter | 1 retry |
 | Business Revision | Claim/Citation error | 增加验证反馈 | Runtime | 总计 3 synthesis attempts |
 | Evidence Repair | 来源读取/Provider/候选接受门禁失败 | 增加精确 quote 与行号修复指令 | Runtime Evidence Gate | 总计 2 extraction attempts |
 
@@ -243,8 +244,7 @@ total tokens: 3682
 
 ## 下一步演进
 
-1. 将结构化盲重试升级为带校验反馈的 repair；
-2. 将已实现的 Evidence Acceptance 与 Source Coverage Gate 纳入评测；
-3. 根据错误类型选择补检索、重定位、删 Claim 或展示冲突；
-4. 保存 attempt 级 Diff 和 Checkpoint；
-5. 评测证明收益后，再放宽动态步骤集合。
+1. 真实回归验证 Structured Repair 的成功率与额外成本；
+2. 根据错误类型选择补检索、重定位、删 Claim 或展示冲突；
+3. 保存 attempt 级 Diff 和 Checkpoint；
+4. 评测证明收益后，再放宽动态步骤集合。

@@ -31,6 +31,8 @@
 | BC-003 | 零验证检查被评测为 100% | Evaluation | 2026-07-14 | 已修复 | Optional Metric 自动化测试通过 |
 | BC-004 | Markdown 出现双重列表符号 | Artifact Rendering | 2026-07-14 | 已修复 | 确定性渲染测试通过 |
 | BC-005 | 风险和行动项业务字段长期为空 | Domain Modeling | 2026-07-14 | 修复中 | 157 项自动化测试通过，待 qwen-plus 原场景回归 |
+| BC-006 | 结构化输出盲重试 | Agent Loop / Model Output | 2026-07-15 | 修复中 | 脱敏反馈测试通过，待 qwen-plus 回归 |
+| BC-007 | Provider 异常泄漏模型正文 | Security / Observability | 2026-07-15 | 已修复 | 敏感异常回归测试通过 |
 
 ## 维护要求
 
