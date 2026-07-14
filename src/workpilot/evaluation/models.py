@@ -51,13 +51,13 @@ class EvalCaseResult(BaseModel):
     task_completed: bool
     evidence_precision: float
     evidence_recall: float
-    citation_validity_rate: float
-    claim_support_rate: float
-    unsupported_claim_rate: float
+    citation_validity_rate: float | None
+    claim_support_rate: float | None
+    unsupported_claim_rate: float | None
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
-    claim_source_coverage_rate: float
+    claim_source_coverage_rate: float | None
     evidence_repair_trigger_count: int = 0
     evidence_repair_recovered: bool = False
     repair_model_call_count: int = 0
@@ -75,13 +75,13 @@ class EvaluationSummary(BaseModel):
     task_completion_rate: float
     evidence_precision: float
     evidence_recall: float
-    citation_validity_rate: float
-    claim_support_rate: float
-    unsupported_claim_rate: float
+    citation_validity_rate: float | None
+    claim_support_rate: float | None
+    unsupported_claim_rate: float | None
     source_coverage_rate: float
     evidence_acceptance_rate: float
     evidence_discard_rate: float
-    claim_source_coverage_rate: float
+    claim_source_coverage_rate: float | None
     evidence_repair_trigger_rate: float
     evidence_repair_recovery_rate: float | None
     average_repair_model_call_count: float

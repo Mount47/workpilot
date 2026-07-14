@@ -168,13 +168,20 @@ def evaluate(
     typer.echo(f"  Source coverage: {summary.source_coverage_rate:.2%}")
     typer.echo(f"  Evidence acceptance: {summary.evidence_acceptance_rate:.2%}")
     typer.echo(
-        f"  Claim source coverage: {summary.claim_source_coverage_rate:.2%}"
+        "  Claim source coverage: "
+        f"{_format_optional_rate(summary.claim_source_coverage_rate)}"
     )
     typer.echo(
         f"  Evidence repair trigger: {summary.evidence_repair_trigger_rate:.2%}"
     )
-    typer.echo(f"  Claim support: {summary.claim_support_rate:.2%}")
+    typer.echo(
+        f"  Claim support: {_format_optional_rate(summary.claim_support_rate)}"
+    )
     typer.echo(f"  Output: {(output / 'eval_report.json').resolve()}")
+
+
+def _format_optional_rate(value: float | None) -> str:
+    return f"{value:.2%}" if value is not None else "N/A"
 
 
 @app.command("providers")

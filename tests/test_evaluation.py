@@ -101,7 +101,16 @@ def test_eval_runner_records_missing_workspace_without_stopping(tmp_path: Path) 
     assert report.summary.task_completion_rate == 0.0
     assert report.cases[0].actual_status == "evaluation_error"
     assert report.cases[0].source_coverage_rate == 0.0
+    assert report.cases[0].citation_validity_rate is None
+    assert report.cases[0].claim_support_rate is None
+    assert report.cases[0].claim_source_coverage_rate is None
     assert "does not exist" in (report.cases[0].error or "")
+
+
+def test_optional_metrics_do_not_treat_zero_checks_as_perfect() -> None:
+    assert EvalRunner._optional_ratio(0, 0) is None
+    assert EvalRunner._optional_mean([None, None]) is None
+    assert EvalRunner._optional_mean([None, 0.5, 1.0]) == 0.75
 
 
 def test_quality_metrics_measure_only_calls_inside_repair_window() -> None:

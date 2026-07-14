@@ -107,10 +107,9 @@ class EvalRunner:
             valid_citations = sum(
                 check["status"] == "passed" for check in citation_checks
             )
-            citation_validity = self._ratio(
+            citation_validity = self._optional_ratio(
                 valid_citations,
                 len(citation_checks),
-                empty_value=1.0,
             )
 
             support_checks = [
@@ -131,15 +130,13 @@ class EvalRunner:
                 check["check_id"] == "claim.semantic_support_pending"
                 for check in support_checks
             )
-            claim_support = self._ratio(
+            claim_support = self._optional_ratio(
                 supported_claims,
                 len(support_checks),
-                empty_value=1.0,
             )
-            unsupported_rate = self._ratio(
+            unsupported_rate = self._optional_ratio(
                 unsupported_claims,
                 len(support_checks),
-                empty_value=0.0,
             )
             source_coverage_checks = [
                 check
@@ -149,10 +146,9 @@ class EvalRunner:
             covered_claim_sources = sum(
                 check["status"] == "passed" for check in source_coverage_checks
             )
-            claim_source_coverage = self._ratio(
+            claim_source_coverage = self._optional_ratio(
                 covered_claim_sources,
                 len(source_coverage_checks),
-                empty_value=1.0,
             )
             quality_metrics = self._quality_metrics(trace_events)
             revision_count = sum(
@@ -206,6 +202,10 @@ class EvalRunner:
     @staticmethod
     def _ratio(numerator: int, denominator: int, empty_value: float) -> float:
         return numerator / denominator if denominator else empty_value
+
+    @staticmethod
+    def _optional_ratio(numerator: int, denominator: int) -> float | None:
+        return numerator / denominator if denominator else None
 
     @classmethod
     def _quality_metrics(cls, trace_events: list[dict]) -> dict:
@@ -280,13 +280,13 @@ class EvalRunner:
             task_completed=False,
             evidence_precision=0.0,
             evidence_recall=0.0,
-            citation_validity_rate=0.0,
-            claim_support_rate=0.0,
-            unsupported_claim_rate=0.0,
+            citation_validity_rate=None,
+            claim_support_rate=None,
+            unsupported_claim_rate=None,
             source_coverage_rate=0.0,
             evidence_acceptance_rate=0.0,
             evidence_discard_rate=0.0,
-            claim_source_coverage_rate=0.0,
+            claim_source_coverage_rate=None,
             error=error,
         )
 
@@ -320,11 +320,13 @@ class EvalRunner:
             task_completion_rate=mean(result.task_completed for result in results),
             evidence_precision=mean(result.evidence_precision for result in results),
             evidence_recall=mean(result.evidence_recall for result in results),
-            citation_validity_rate=mean(
+            citation_validity_rate=EvalRunner._optional_mean(
                 result.citation_validity_rate for result in results
             ),
-            claim_support_rate=mean(result.claim_support_rate for result in results),
-            unsupported_claim_rate=mean(
+            claim_support_rate=EvalRunner._optional_mean(
+                result.claim_support_rate for result in results
+            ),
+            unsupported_claim_rate=EvalRunner._optional_mean(
                 result.unsupported_claim_rate for result in results
             ),
             source_coverage_rate=mean(
@@ -336,7 +338,7 @@ class EvalRunner:
             evidence_discard_rate=mean(
                 result.evidence_discard_rate for result in results
             ),
-            claim_source_coverage_rate=mean(
+            claim_source_coverage_rate=EvalRunner._optional_mean(
                 result.claim_source_coverage_rate for result in results
             ),
             evidence_repair_trigger_rate=mean(
@@ -355,3 +357,8 @@ class EvalRunner:
             revision_recovery_rate=recovery_rate,
             average_revision_count=mean(result.revision_count for result in results),
         )
+
+    @staticmethod
+    def _optional_mean(values) -> float | None:
+        known = [value for value in values if value is not None]
+        return mean(known) if known else None
