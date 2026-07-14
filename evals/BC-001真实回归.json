@@ -1,0 +1,30 @@
+{
+  "name": "WorkPilot BC-001 真实模型回归",
+  "version": "0.1",
+  "cases": [
+    {
+      "case_id": "bc001_qwen_source_coverage",
+      "workspace": "../tests/fixtures/workspaces/basic_project",
+      "goal": "生成本周项目周报",
+      "expected_status": "passed",
+      "bad_case_ids": ["BC-001", "BC-002"],
+      "expected_evidence_quotes": [
+        "- PROJ-101: 支付重试逻辑开发 (李四, P1, blocked — 等待 API 设计确认)",
+        "- PROJ-102: 首页改版 (王五, P0, in progress)",
+        "- PROJ-103: 线上告警排查 (张三, P2, in progress)",
+        "- PROJ-098: 用户登录流程优化 (李四, P1, done)",
+        "- PROJ-099: 商品详情页缓存优化 (王五, P1, done)",
+        "- PROJ-104: 订单导出功能 (未分配, P2, pending)",
+        "- PROJ-105: 移动端适配 (未分配, P3, pending)",
+        "1. 支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案。",
+        "2. 前端首页改版已完成设计评审，王五预计周三开始开发。",
+        "3. 线上告警频率上升，过去一周 P2 告警增加 40%，需要排查原因。",
+        "- 支付重试方案截止日期定为本周五。",
+        "- 首页改版优先级提升为 P0。",
+        "- 李四：输出支付重试 API 设计文档。",
+        "- 王五：周三启动首页改版开发。",
+        "- 张三：协调 SRE 排查告警上升原因。"
+      ]
+    }
+  ]
+}

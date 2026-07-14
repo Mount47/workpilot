@@ -10,7 +10,7 @@
 - 关联模块：Runtime、EvidenceExtractor、OpenAI-compatible Provider
 - Provider / Model：阿里云百炼 / qwen-plus
 - Run：`runs/qwen-plus-bc001-regression`
-- 关联评测 Case：`basic_project_weekly_report`、BC-001
+- 关联评测 Case：`evals/BC-001真实回归.json`、BC-001
 
 ## 用户任务与输入概况
 
@@ -81,7 +81,7 @@ run_failed
 
 ## 真实场景复跑
 
-本案例本身来自真实 qwen-plus 复跑。完成下一版修复后，需要在新目录再次运行同一 Case，不能覆盖本次失败产物。
+本案例本身来自真实 qwen-plus 复跑。完成下一版修复后，使用独立的 `evals/BC-001真实回归.json` 在新目录再次运行，不能覆盖本次失败产物。
 
 ## 关联代码与提交
 
