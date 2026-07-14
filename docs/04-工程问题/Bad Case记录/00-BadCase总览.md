@@ -30,9 +30,11 @@
 | BC-002 | Evidence Repair 重复无效候选且未恢复 | Evidence / Agent Loop | 2026-07-14 | 已回归验证 | qwen-plus Recall/Acceptance 均达到 100% |
 | BC-003 | 零验证检查被评测为 100% | Evaluation | 2026-07-14 | 已修复 | Optional Metric 自动化测试通过 |
 | BC-004 | Markdown 出现双重列表符号 | Artifact Rendering | 2026-07-14 | 已修复 | 确定性渲染测试通过 |
-| BC-005 | 风险和行动项业务字段长期为空 | Domain Modeling | 2026-07-14 | 修复中 | 157 项自动化测试通过，待 qwen-plus 原场景回归 |
+| BC-005 | 风险和行动项业务字段长期为空 | Domain Modeling | 2026-07-14 | 修复中 | qwen-plus 已产出部分字段，待 passed 回归与准确率标注 |
 | BC-006 | 结构化输出盲重试 | Agent Loop / Model Output | 2026-07-15 | 修复中 | 脱敏反馈测试通过，待 qwen-plus 回归 |
 | BC-007 | Provider 异常泄漏模型正文 | Security / Observability | 2026-07-15 | 已修复 | 敏感异常回归测试通过 |
+| BC-008 | Claim 列表符号导致原文校验失败 | Verification / Model Output | 2026-07-15 | 已修复 | marker-only 与 paraphrase 测试通过 |
+| BC-009 | 修订失败丢失验证报告 | Observability / Evaluation | 2026-07-15 | 已修复 | 失败修订端到端测试通过 |
 
 ## 维护要求
 
