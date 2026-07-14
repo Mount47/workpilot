@@ -1,5 +1,7 @@
 """Render verified project claims into user-facing artifacts."""
 
+import re
+
 from workpilot.contracts import MissionContract
 from workpilot.domain import Claim, ClaimCategory, ClaimType, ProjectSnapshot
 from workpilot.providers.base import LLMProvider
@@ -52,10 +54,16 @@ class Synthesizer:
 
     @staticmethod
     def _render_claim(claim: Claim) -> str:
+        display_text = Synthesizer._display_text(claim.text)
         if claim.claim_type == ClaimType.UNKNOWN:
-            return f"{claim.text} [unknown]"
+            return f"{display_text} [unknown]"
         refs = " ".join(f"[{ref}]" for ref in claim.evidence_refs)
-        return f"{claim.text} {refs}".rstrip()
+        return f"{display_text} {refs}".rstrip()
+
+    @staticmethod
+    def _display_text(text: str) -> str:
+        """Remove one source list marker when rendering inside a new list."""
+        return re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", text, count=1)
 
     @staticmethod
     def _render_risks(snapshot: ProjectSnapshot) -> dict:
@@ -70,7 +78,7 @@ class Synthesizer:
                 {
                     "risk_id": f"R-{index:04d}",
                     "claim_id": claim.claim_id,
-                    "title": claim.text[:50],
+                    "title": Synthesizer._display_text(claim.text)[:50],
                     "description": claim.text,
                     "severity": "unknown",
                     "status": "open",
@@ -94,7 +102,7 @@ class Synthesizer:
                 {
                     "action_id": f"A-{index:04d}",
                     "claim_id": claim.claim_id,
-                    "title": claim.text[:50],
+                    "title": Synthesizer._display_text(claim.text)[:50],
                     "owner": None,
                     "due_date": None,
                     "source_refs": claim.evidence_refs,
