@@ -15,6 +15,7 @@ from workpilot.providers.base import (
     LLMProvider,
     ProviderResponseError,
     StructuredGenerationResult,
+    structured_validation_feedback,
 )
 from workpilot.providers.errors import ProviderCallError, classify_provider_exception
 from workpilot.providers.openai_provider import (
@@ -101,10 +102,11 @@ class ClaudeProvider(LLMProvider):
         if system_prompt:
             full_system = system_prompt + "\n\n" + full_system
         generations: list[GenerationResult] = []
+        current_prompt = prompt
 
         for attempt in range(1 + self.max_retries):
             generation = self.generate_text(
-                prompt=prompt,
+                prompt=current_prompt,
                 system_prompt=full_system,
                 temperature=temperature,
             )
@@ -116,13 +118,18 @@ class ClaudeProvider(LLMProvider):
                     value=value,
                     generations=tuple(generations),
                 )
-            except (json.JSONDecodeError, ValidationError):
+            except (json.JSONDecodeError, ValidationError) as exc:
                 if attempt == self.max_retries:
                     raise ProviderResponseError(
-                        f"Failed to parse structured response after "
-                        f"{1 + self.max_retries} attempts. Raw: {text[:200]}",
+                        "Structured response validation failed after "
+                        f"{1 + self.max_retries} attempts; "
+                        f"{structured_validation_feedback(exc)}",
                         tuple(generations),
-                    )
+                    ) from exc
+                current_prompt = (
+                    f"{prompt}\n\nPrevious response:\n{generation.content}\n\n"
+                    f"{structured_validation_feedback(exc)}"
+                )
 
         raise RuntimeError("Unreachable")
 

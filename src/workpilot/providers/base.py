@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from json import JSONDecodeError
 
 
 class EvidenceType(str, Enum):
@@ -83,6 +84,27 @@ class ProviderResponseError(ValueError):
         self.generations = generations
         self.error_type = "invalid_response"
         self.retryable = False
+
+
+def structured_validation_feedback(
+    error: JSONDecodeError | ValidationError,
+) -> str:
+    """Return actionable Schema feedback without copying business values."""
+    if isinstance(error, JSONDecodeError):
+        issue_summary = (
+            f"json_invalid at line {error.lineno}, column {error.colno}"
+        )
+    else:
+        issues = []
+        for issue in error.errors(include_url=False, include_input=False)[:12]:
+            location = ".".join(str(part) for part in issue["loc"]) or "root"
+            issues.append(f"{location}: {issue['type']}")
+        issue_summary = "; ".join(issues) or "schema_validation_failed"
+    return (
+        "The previous JSON response failed validation. Return the complete "
+        "corrected JSON object only. Do not omit required nested objects. "
+        f"Validation issues: {issue_summary}"
+    )
 
 
 class LLMProvider(ABC):

@@ -52,6 +52,29 @@ def test_claude_generate_structured_returns_value_and_call() -> None:
     assert len(result.generations) == 1
 
 
+def test_claude_structured_retry_receives_safe_validation_feedback() -> None:
+    class ResultModel(BaseModel):
+        value: int
+
+    with patch("workpilot.providers.claude_provider.Anthropic") as anthropic:
+        client = MagicMock()
+        client.messages.create.side_effect = [
+            _response(json.dumps({"value": "private-value"})),
+            _response(json.dumps({"value": 9})),
+        ]
+        anthropic.return_value = client
+        provider = ClaudeProvider(api_key="test", model="claude-test")
+
+        result = provider.generate_structured("return value", ResultModel)
+
+    assert result.value.value == 9
+    retry_prompt = client.messages.create.call_args_list[1][1]["messages"][0][
+        "content"
+    ]
+    assert "value: int_parsing" in retry_prompt
+    assert "Previous response" in retry_prompt
+
+
 def test_claude_wraps_authentication_error() -> None:
     class AuthenticationFailure(Exception):
         status_code = 401

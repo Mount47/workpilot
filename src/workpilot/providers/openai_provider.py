@@ -15,6 +15,7 @@ from workpilot.providers.base import (
     LLMProvider,
     ProviderResponseError,
     StructuredGenerationResult,
+    structured_validation_feedback,
 )
 from workpilot.providers.errors import ProviderCallError, classify_provider_exception
 
@@ -126,13 +127,23 @@ class OpenAIProvider(LLMProvider):
                     value=value,
                     generations=tuple(generations),
                 )
-            except (json.JSONDecodeError, ValidationError):
+            except (json.JSONDecodeError, ValidationError) as exc:
                 if attempt == self.max_retries:
                     raise ProviderResponseError(
-                        f"Failed to parse structured response after "
-                        f"{1 + self.max_retries} attempts. Raw: {text[:200]}",
+                        "Structured response validation failed after "
+                        f"{1 + self.max_retries} attempts; "
+                        f"{structured_validation_feedback(exc)}",
                         tuple(generations),
-                    )
+                    ) from exc
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": generation.content},
+                        {
+                            "role": "user",
+                            "content": structured_validation_feedback(exc),
+                        },
+                    ]
+                )
 
         raise RuntimeError("Unreachable")
 

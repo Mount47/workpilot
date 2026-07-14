@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
+from workpilot.providers.base import ProviderResponseError
 from workpilot.providers.openai_provider import OpenAIProvider
 
 
@@ -174,8 +176,6 @@ def test_generate_structured(mock_openai_client) -> None:
 
 
 def test_generate_structured_retries_on_invalid_json(mock_openai_client) -> None:
-    from pydantic import BaseModel
-
     class TestModel(BaseModel):
         value: int
 
@@ -190,3 +190,53 @@ def test_generate_structured_retries_on_invalid_json(mock_openai_client) -> None
     assert result.value.value == 7
     assert len(result.generations) == 2
     assert mock_openai_client.chat.completions.create.call_count == 2
+    retry_messages = mock_openai_client.chat.completions.create.call_args_list[1][1][
+        "messages"
+    ]
+    assert retry_messages[-2] == {"role": "assistant", "content": "not json"}
+    assert "json_invalid" in retry_messages[-1]["content"]
+
+
+def test_structured_retry_feedback_contains_schema_location(
+    mock_openai_client,
+) -> None:
+    class TestModel(BaseModel):
+        value: int
+
+    mock_openai_client.chat.completions.create.side_effect = [
+        _make_chat_response(json.dumps({"value": "secret-text"})),
+        _make_chat_response(json.dumps({"value": 7})),
+    ]
+
+    result = OpenAIProvider(
+        api_key="test-key",
+        model="m",
+        max_retries=1,
+    ).generate_structured("test", TestModel)
+
+    assert result.value.value == 7
+    retry_messages = mock_openai_client.chat.completions.create.call_args_list[1][1][
+        "messages"
+    ]
+    assert "value: int_parsing" in retry_messages[-1]["content"]
+    assert "secret-text" not in retry_messages[-1]["content"]
+
+
+def test_structured_failure_does_not_expose_raw_response(
+    mock_openai_client,
+) -> None:
+    class TestModel(BaseModel):
+        value: int
+
+    mock_openai_client.chat.completions.create.return_value = _make_chat_response(
+        '{"customer_secret": "sensitive project text"}'
+    )
+    provider = OpenAIProvider(api_key="test-key", model="m", max_retries=1)
+
+    with pytest.raises(ProviderResponseError) as captured:
+        provider.generate_structured("test", TestModel)
+
+    message = str(captured.value)
+    assert "customer_secret" not in message
+    assert "sensitive project text" not in message
+    assert "value: missing" in message
