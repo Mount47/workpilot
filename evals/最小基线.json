@@ -1,12 +1,13 @@
 {
   "name": "WorkPilot 最小 Stub 基线",
-  "version": "0.1",
+  "version": "0.2",
   "cases": [
     {
       "case_id": "basic_project_weekly_report",
       "workspace": "../tests/fixtures/workspaces/basic_project",
       "goal": "生成本周项目周报",
       "expected_status": "passed",
+      "bad_case_ids": ["BC-001"],
       "expected_evidence_quotes": [
         "- PROJ-101: 支付重试逻辑开发 (李四, P1, blocked — 等待 API 设计确认)",
         "- PROJ-102: 首页改版 (王五, P0, in progress)",

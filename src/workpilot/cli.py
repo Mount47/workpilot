@@ -165,6 +165,14 @@ def evaluate(
     typer.echo(f"  Task completion: {summary.task_completion_rate:.2%}")
     typer.echo(f"  Evidence precision: {summary.evidence_precision:.2%}")
     typer.echo(f"  Evidence recall: {summary.evidence_recall:.2%}")
+    typer.echo(f"  Source coverage: {summary.source_coverage_rate:.2%}")
+    typer.echo(f"  Evidence acceptance: {summary.evidence_acceptance_rate:.2%}")
+    typer.echo(
+        f"  Claim source coverage: {summary.claim_source_coverage_rate:.2%}"
+    )
+    typer.echo(
+        f"  Evidence repair trigger: {summary.evidence_repair_trigger_rate:.2%}"
+    )
     typer.echo(f"  Claim support: {summary.claim_support_rate:.2%}")
     typer.echo(f"  Output: {(output / 'eval_report.json').resolve()}")
 

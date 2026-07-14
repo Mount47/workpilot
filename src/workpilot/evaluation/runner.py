@@ -141,6 +141,20 @@ class EvalRunner:
                 len(support_checks),
                 empty_value=0.0,
             )
+            source_coverage_checks = [
+                check
+                for check in checks
+                if check["check_id"] == "source.claim_coverage"
+            ]
+            covered_claim_sources = sum(
+                check["status"] == "passed" for check in source_coverage_checks
+            )
+            claim_source_coverage = self._ratio(
+                covered_claim_sources,
+                len(source_coverage_checks),
+                empty_value=1.0,
+            )
+            quality_metrics = self._quality_metrics(trace_events)
             revision_count = sum(
                 event["event_type"] == "revision_requested"
                 for event in trace_events
@@ -148,6 +162,7 @@ class EvalRunner:
 
             return EvalCaseResult(
                 case_id=case.case_id,
+                bad_case_ids=case.bad_case_ids,
                 expected_status=case.expected_status,
                 actual_status=run.state.value,
                 task_completed=run.state.value == case.expected_status,
@@ -156,6 +171,23 @@ class EvalRunner:
                 citation_validity_rate=citation_validity,
                 claim_support_rate=claim_support,
                 unsupported_claim_rate=unsupported_rate,
+                source_coverage_rate=quality_metrics["source_coverage_rate"],
+                evidence_acceptance_rate=(
+                    quality_metrics["evidence_acceptance_rate"]
+                ),
+                evidence_discard_rate=quality_metrics["evidence_discard_rate"],
+                claim_source_coverage_rate=claim_source_coverage,
+                evidence_repair_trigger_count=(
+                    quality_metrics["evidence_repair_trigger_count"]
+                ),
+                evidence_repair_recovered=(
+                    quality_metrics["evidence_repair_recovered"]
+                ),
+                repair_model_call_count=(
+                    quality_metrics["repair_model_call_count"]
+                ),
+                repair_token_count=quality_metrics["repair_token_count"],
+                repair_estimated_cost=quality_metrics["repair_estimated_cost"],
                 semantic_unverified_count=semantic_unverified,
                 revision_count=revision_count,
                 error=run.failure_reason,
@@ -175,10 +207,74 @@ class EvalRunner:
     def _ratio(numerator: int, denominator: int, empty_value: float) -> float:
         return numerator / denominator if denominator else empty_value
 
+    @classmethod
+    def _quality_metrics(cls, trace_events: list[dict]) -> dict:
+        quality_events = [
+            event
+            for event in trace_events
+            if event["event_type"] == "evidence_quality_evaluated"
+        ]
+        final_quality = quality_events[-1]["data"] if quality_events else {}
+        scanned = final_quality.get("scanned_source_count", 0)
+        reported = final_quality.get("reported_source_count", 0)
+        candidates = final_quality.get("candidate_count", 0)
+        accepted = final_quality.get("accepted_evidence_count", 0)
+        discarded = final_quality.get("discarded_count", 0)
+        repair_trigger_count = sum(
+            event["event_type"] == "evidence_repair_requested"
+            for event in trace_events
+        )
+        repair_recovered = bool(
+            repair_trigger_count
+            and quality_events
+            and quality_events[0]["data"].get("passed") is False
+            and final_quality.get("passed") is True
+        )
+
+        repair_started = False
+        repair_calls: list[dict] = []
+        for event in trace_events:
+            if event["event_type"] == "evidence_repair_requested":
+                repair_started = True
+                continue
+            if (
+                repair_started
+                and event["event_type"] == "evidence_quality_evaluated"
+            ):
+                repair_started = False
+                continue
+            if repair_started and event["event_type"] == "model_call_completed":
+                repair_calls.append(event["data"])
+
+        costs = [call.get("estimated_cost") for call in repair_calls]
+        repair_cost = (
+            sum(costs)
+            if repair_calls and all(cost is not None for cost in costs)
+            else 0.0 if not repair_calls else None
+        )
+        return {
+            "source_coverage_rate": cls._ratio(reported, scanned, 1.0),
+            "evidence_acceptance_rate": cls._ratio(
+                accepted,
+                candidates,
+                0.0,
+            ),
+            "evidence_discard_rate": cls._ratio(discarded, candidates, 0.0),
+            "evidence_repair_trigger_count": repair_trigger_count,
+            "evidence_repair_recovered": repair_recovered,
+            "repair_model_call_count": len(repair_calls),
+            "repair_token_count": sum(
+                call.get("input_tokens", 0) + call.get("output_tokens", 0)
+                for call in repair_calls
+            ),
+            "repair_estimated_cost": repair_cost,
+        }
+
     @staticmethod
     def _failed_case(case, error: str) -> EvalCaseResult:
         return EvalCaseResult(
             case_id=case.case_id,
+            bad_case_ids=case.bad_case_ids,
             expected_status=case.expected_status,
             actual_status="evaluation_error",
             task_completed=False,
@@ -187,6 +283,10 @@ class EvalRunner:
             citation_validity_rate=0.0,
             claim_support_rate=0.0,
             unsupported_claim_rate=0.0,
+            source_coverage_rate=0.0,
+            evidence_acceptance_rate=0.0,
+            evidence_discard_rate=0.0,
+            claim_source_coverage_rate=0.0,
             error=error,
         )
 
@@ -200,6 +300,21 @@ class EvalRunner:
         recovery_rate = (
             recovered / len(revised_cases) if revised_cases else None
         )
+        repair_cases = [
+            result
+            for result in results
+            if result.evidence_repair_trigger_count > 0
+        ]
+        repair_recovery_rate = (
+            mean(result.evidence_repair_recovered for result in repair_cases)
+            if repair_cases
+            else None
+        )
+        known_repair_costs = [
+            result.repair_estimated_cost
+            for result in results
+            if result.repair_estimated_cost is not None
+        ]
         return EvaluationSummary(
             total_cases=len(results),
             task_completion_rate=mean(result.task_completed for result in results),
@@ -211,6 +326,31 @@ class EvalRunner:
             claim_support_rate=mean(result.claim_support_rate for result in results),
             unsupported_claim_rate=mean(
                 result.unsupported_claim_rate for result in results
+            ),
+            source_coverage_rate=mean(
+                result.source_coverage_rate for result in results
+            ),
+            evidence_acceptance_rate=mean(
+                result.evidence_acceptance_rate for result in results
+            ),
+            evidence_discard_rate=mean(
+                result.evidence_discard_rate for result in results
+            ),
+            claim_source_coverage_rate=mean(
+                result.claim_source_coverage_rate for result in results
+            ),
+            evidence_repair_trigger_rate=mean(
+                result.evidence_repair_trigger_count > 0 for result in results
+            ),
+            evidence_repair_recovery_rate=repair_recovery_rate,
+            average_repair_model_call_count=mean(
+                result.repair_model_call_count for result in results
+            ),
+            average_repair_token_count=mean(
+                result.repair_token_count for result in results
+            ),
+            average_repair_estimated_cost=(
+                mean(known_repair_costs) if known_repair_costs else None
             ),
             revision_recovery_rate=recovery_rate,
             average_revision_count=mean(result.revision_count for result in results),

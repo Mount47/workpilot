@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from workpilot.planning import PlanDraft
 
@@ -16,6 +16,21 @@ class EvalCase(BaseModel):
     goal: str = Field(min_length=1)
     expected_evidence_quotes: list[str] = Field(default_factory=list)
     expected_status: Literal["passed", "failed"] = "passed"
+    bad_case_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("bad_case_ids")
+    @classmethod
+    def validate_bad_case_ids(cls, values: list[str]) -> list[str]:
+        if any(
+            len(value) != 6
+            or not value.startswith("BC-")
+            or not value[3:].isdigit()
+            for value in values
+        ):
+            raise ValueError("bad_case_ids must use the BC-XXX format")
+        if len(values) != len(set(values)):
+            raise ValueError("bad_case_ids must not contain duplicates")
+        return values
 
 
 class EvalSuite(BaseModel):
@@ -30,6 +45,7 @@ class EvalCaseResult(BaseModel):
     """Metrics and execution facts for one evaluation case."""
 
     case_id: str
+    bad_case_ids: list[str] = Field(default_factory=list)
     expected_status: str
     actual_status: str
     task_completed: bool
@@ -38,6 +54,15 @@ class EvalCaseResult(BaseModel):
     citation_validity_rate: float
     claim_support_rate: float
     unsupported_claim_rate: float
+    source_coverage_rate: float
+    evidence_acceptance_rate: float
+    evidence_discard_rate: float
+    claim_source_coverage_rate: float
+    evidence_repair_trigger_count: int = 0
+    evidence_repair_recovered: bool = False
+    repair_model_call_count: int = 0
+    repair_token_count: int = 0
+    repair_estimated_cost: float | None = None
     semantic_unverified_count: int = 0
     revision_count: int = 0
     error: str | None = None
@@ -53,6 +78,15 @@ class EvaluationSummary(BaseModel):
     citation_validity_rate: float
     claim_support_rate: float
     unsupported_claim_rate: float
+    source_coverage_rate: float
+    evidence_acceptance_rate: float
+    evidence_discard_rate: float
+    claim_source_coverage_rate: float
+    evidence_repair_trigger_rate: float
+    evidence_repair_recovery_rate: float | None
+    average_repair_model_call_count: float
+    average_repair_token_count: float
+    average_repair_estimated_cost: float | None
     revision_recovery_rate: float | None
     average_revision_count: float
 
