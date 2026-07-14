@@ -35,6 +35,7 @@
 | BC-007 | Provider 异常泄漏模型正文 | Security / Observability | 2026-07-15 | 已修复 | 敏感异常回归测试通过 |
 | BC-008 | Claim 列表符号导致原文校验失败 | Verification / Model Output | 2026-07-15 | 已修复 | marker-only 与 paraphrase 测试通过 |
 | BC-009 | 修订失败丢失验证报告 | Observability / Evaluation | 2026-07-15 | 已修复 | 失败修订端到端测试通过 |
+| BC-010 | Stub 忽略章节导致实体误分类 | Evaluation / Engineering | 2026-07-15 | 已修复 | Action/Risk Entity Recall 均为 100% |
 
 ## 维护要求
 
