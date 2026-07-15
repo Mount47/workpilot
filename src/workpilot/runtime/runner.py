@@ -7,7 +7,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, Callable, Iterator
 
-from workpilot.analysis import ClaimBuilder
+from workpilot.analysis import ClaimBuilder, EntityBuilder
 from workpilot.artifacts.writer import ArtifactWriter
 from workpilot.contracts import MissionContract
 from workpilot.domain import ProjectSnapshot
@@ -145,6 +145,8 @@ class Runtime:
                 )
         self.claim_builder = ClaimBuilder(provider=analysis_provider)
         self.revision_claim_builder = ClaimBuilder(provider=revision_provider)
+        self.entity_builder = EntityBuilder(provider=analysis_provider)
+        self.revision_entity_builder = EntityBuilder(provider=revision_provider)
         self.synthesizer = Synthesizer(provider=analysis_provider)
 
     def execute(self) -> Run:
@@ -451,11 +453,23 @@ class Runtime:
                         evidence_store=self.evidence_store,
                         feedback=self.memory.revision_feedback,
                     )
+                    entity_builder = (
+                        self.entity_builder
+                        if attempt == 1
+                        else self.revision_entity_builder
+                    )
+                    self.project_snapshot = entity_builder.build(
+                        goal=self.contract.goal,
+                        project_snapshot=self.project_snapshot,
+                        evidence_store=self.evidence_store,
+                    )
                 except ProviderResponseError as exc:
                     for generation in exc.generations:
                         self._observe_model_call(generation, step_id)
                     raise
                 for generation in builder.get_model_calls():
+                    self._observe_model_call(generation, step_id)
+                for generation in entity_builder.get_model_calls():
                     self._observe_model_call(generation, step_id)
                 self.memory.set_project_snapshot(self.project_snapshot)
                 self.trace.append(
@@ -465,6 +479,13 @@ class Runtime:
                         "claim_count": len(self.project_snapshot.claims),
                         "claim_text_repair_count": (
                             builder.get_claim_text_repair_count()
+                        ),
+                        "action_item_count": len(
+                            self.project_snapshot.action_items
+                        ),
+                        "risk_count": len(self.project_snapshot.risks),
+                        "entity_projection_model_call_count": len(
+                            entity_builder.get_model_calls()
                         ),
                     },
                     step_id=step_id,

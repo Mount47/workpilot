@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from workpilot.analysis.claim_builder import ClaimDraft, ClaimDraftCollection
+from workpilot.analysis.entity_builder import EntityProjectionDraft
 from workpilot.contracts import MissionContract
 from workpilot.domain import ClaimCategory, ClaimType
 from workpilot.planning import (
@@ -51,6 +52,17 @@ class RevisionProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.0,
     ) -> StructuredGenerationResult:
+        if response_model is EntityProjectionDraft:
+            return StructuredGenerationResult(
+                value=EntityProjectionDraft(),
+                generations=(
+                    GenerationResult(
+                        content="{}",
+                        provider="revision",
+                        model="revision",
+                    ),
+                ),
+            )
         self.claim_calls += 1
         evidence_ref = "E-9999" if self.claim_calls == 1 else "E-0001"
         return StructuredGenerationResult(
@@ -109,6 +121,13 @@ class FailingRevisionProvider(RevisionProvider):
         system_prompt: str | None = None,
         temperature: float = 0.0,
     ) -> StructuredGenerationResult:
+        if response_model is EntityProjectionDraft:
+            return super().generate_structured(
+                prompt,
+                response_model,
+                system_prompt,
+                temperature,
+            )
         if self.claim_calls == 0:
             return super().generate_structured(
                 prompt,
