@@ -25,14 +25,14 @@ StubProvider 逐行分类时直接跳过 Markdown 标题，没有保存当前章
 
 - 扫描 Markdown 时保留最近章节标题；
 - “下一步”“行动项”“待办”章节优先分类为 action_item；
+- 复合句中“需要给出/输出/完成/启动”等明确交付动作优先于风险关键词；
 - 其他章节继续使用原关键词规则；
 - 新增同一“告警”语义在讨论章节为 risk、在下一步章节为 action_item 的测试。
 
 ## 回归结果
 
-BC-005 Stub 基线 Action/Risk Entity Recall 均为 100%，全量 169 项测试通过。
+BC-005 穷举 Stub 基线 Action/Risk Entity Precision/Recall 均为 100%。
 
 ## 面试复盘要点
 
 评测工具本身也会产生 Bad Case。如果确定性基线分类错误，模型对比数据就失去可信度；因此 Golden 数据、匹配器和 Stub 都需要和生产链路一样接受回归测试。
-

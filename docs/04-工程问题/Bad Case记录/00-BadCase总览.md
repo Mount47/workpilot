@@ -37,8 +37,9 @@
 | BC-009 | 修订失败丢失验证报告 | Observability / Evaluation | 2026-07-15 | 已修复 | 失败修订端到端测试通过 |
 | BC-010 | Stub 忽略章节导致实体误分类 | Evaluation / Engineering | 2026-07-15 | 已修复 | Action/Risk Entity Recall 均为 100% |
 | BC-011 | 嵌套字段 Schema 阻塞 qwen 输出 | Model Output / Cost | 2026-07-15 | 已回归验证 | 扁平 Schema 成功构建实体，字段支持率 100% |
-| BC-012 | explicit 事实文本所有权错误 | Verification / Domain | 2026-07-15 | 已修复 | primary Evidence 契约测试通过 |
-| BC-013 | RiskStatus 缺少 blocked | Domain Modeling | 2026-07-15 | 已修复 | blocked 状态与 Evidence 约束测试通过 |
+| BC-012 | explicit 事实文本所有权错误 | Verification / Domain | 2026-07-15 | 已回归验证 | qwen-plus Claim Support 100% |
+| BC-013 | RiskStatus 缺少 blocked | Domain Modeling | 2026-07-15 | 已回归验证 | qwen-plus 修订恢复后 Run passed |
+| BC-014 | 跨 Evidence 字段召回不足 | Model Output / Evaluation | 2026-07-15 | 修复中 | Prompt 与穷举 Golden 已更新 |
 
 ## 维护要求
 

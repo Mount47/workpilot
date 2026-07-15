@@ -2,7 +2,7 @@
 
 ## 元信息
 
-- 状态：已修复
+- 状态：已回归验证
 - 首次发现：2026-07-15
 - 主要分类：VERIFICATION_GAP
 - 次要分类：MODEL_OUTPUT、Domain Modeling
@@ -37,7 +37,8 @@ explicit_fact 的正文应始终来自已验证 Evidence quote，模型只负责
 
 单来源、显式 primary、非法 primary 和多来源 paraphrase 测试通过。该问题由确定性代码契约修复，不需要模糊匹配。
 
+修复后 qwen-plus 回归 Claim Support、Citation Validity 和 Claim Source Coverage 均为 100%，Run 最终 passed。
+
 ## 面试复盘要点
 
 对 explicit fact，LLM 应输出“证据身份”，而不是再次生成事实内容。把事实文本所有权交回 Evidence Store，可以从架构上消除一类幻觉和格式漂移。
-
