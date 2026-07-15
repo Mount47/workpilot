@@ -8,4 +8,4 @@ YYYYMMDD-项目点名称.md
 
 新建记录时复制上一级的《设计记录模板》，并在状态变化时更新元信息。记录应随着实现状态持续更新，不允许在代码完成后仍保留错误状态。
 
-当前记录包括证据主链路、Memory、Provider、Planner、DAG、Bad Case、Evidence Repair、证据驱动结构化项目实体与字段 Golden 评测等演进决策。
+当前记录包括证据主链路、Memory、Provider、Planner、DAG、Bad Case、Evidence Repair、证据驱动结构化项目实体、字段 Golden 评测以及 Claim 与实体投影解耦等演进决策。

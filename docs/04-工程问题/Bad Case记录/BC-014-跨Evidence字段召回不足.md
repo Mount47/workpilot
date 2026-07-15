@@ -6,7 +6,7 @@
 - 首次发现：2026-07-15
 - 主要分类：MODEL_OUTPUT
 - 次要分类：EVIDENCE_RETRIEVAL、EVALUATION_REGRESSION
-- 关联模块：ClaimBuilder Prompt、Entity Golden Evaluation
+- 关联模块：ClaimBuilder Prompt、EntityBuilder、Entity Golden Evaluation
 - 发现 Run：`qwen-plus-bc005-primary-evidence-regression`
 
 ## 预期结果
@@ -41,11 +41,34 @@ ClaimBuilder 主要按单条 Evidence 构建实体，Prompt 没有要求在字�
 - 禁止跨项目 ID、不同工作项或不同负责人错误合并；
 - Golden 改成穷举 4 个 ActionItem、2 个 Risk，开始计算实体 Precision。
 
-## 回归状态
+## 第一阶段真实回归
 
-Prompt 与 Golden 已更新，Stub 穷举实体 Precision/Recall 基线通过；尚未再次调用 qwen-plus，因此状态为“修复中”。
+2026-07-15 使用 `qwen-plus-bc014-cross-evidence-regression` 回归，Run passed，引用和字段支持仍为 100%，但结果只部分改善：
+
+- Risk Mitigation Precision/Recall 从无召回提升为 100% / 100%；
+- Action Entity Recall 从 100% 降至 75%；
+- Action Due Date Recall 从 50% 降至 33.33%；
+- Risk Precision 为 66.67%，模型把同一支付风险重复投影；
+- Risk Owner Precision 为 50%，相关行动负责人被错误当成重复风险负责人；
+- 5 类证据/引用/Claim/字段支持指标仍为 100%，说明“已填字段有依据”不能防止实体漏召回和语义错配。
+
+本次结果证明继续堆叠 ClaimBuilder Prompt 不足以稳定解决问题，BC-014 保持“修复中”。
+
+## 第二阶段修复
+
+- 新增独立 `EntityBuilder`，把不可变 Claim 生成与业务实体投影解耦；
+- EntityBuilder 查看完整 Claim 和 Evidence 集合，独立输出 ActionItem/Risk 投影；
+- 允许从 blocker/decision/context 中识别明确行动义务，不再只依赖 Claim category；
+- 跨 Evidence 字段引用自动并入 entity source refs；
+- 未知 Claim/Evidence 引用 fail closed；
+- 同一种实体禁止对同一个 Claim 重复投影；
+- Trace 新增 action/risk 数量及实体投影物理模型调用数；
+- 原有 EntityFieldVerifier 继续负责字段原文支持和引用边界验证。
+
+代码回归为 179 passed。该阶段尚需再次调用 qwen-plus 验证，不能提前标记修复完成。
 
 ## 面试复盘要点
 
 字段值有 Evidence 不代表字段完整。Support/Precision 解决“有没有编造”，Recall 解决“有没有漏掉”；企业 Agent 必须同时评测两者。
 
+本 Case 还证明：当一个模型调用同时承担事实抽取、分类、实体发现、跨证据合并和去重时，Prompt 局部改动可能改善一个指标却损害另一个指标。拆分阶段的价值不只是代码整洁，而是让失败可定位、可独立评测和可定向重试。
