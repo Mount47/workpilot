@@ -36,7 +36,9 @@
 | BC-008 | Claim 列表符号导致原文校验失败 | Verification / Model Output | 2026-07-15 | 已修复 | marker-only 与 paraphrase 测试通过 |
 | BC-009 | 修订失败丢失验证报告 | Observability / Evaluation | 2026-07-15 | 已修复 | 失败修订端到端测试通过 |
 | BC-010 | Stub 忽略章节导致实体误分类 | Evaluation / Engineering | 2026-07-15 | 已修复 | Action/Risk Entity Recall 均为 100% |
-| BC-011 | 嵌套字段 Schema 阻塞 qwen 输出 | Model Output / Cost | 2026-07-15 | 修复中 | 扁平 Schema 测试通过，待真实回归 |
+| BC-011 | 嵌套字段 Schema 阻塞 qwen 输出 | Model Output / Cost | 2026-07-15 | 已回归验证 | 扁平 Schema 成功构建实体，字段支持率 100% |
+| BC-012 | explicit 事实文本所有权错误 | Verification / Domain | 2026-07-15 | 已修复 | primary Evidence 契约测试通过 |
+| BC-013 | RiskStatus 缺少 blocked | Domain Modeling | 2026-07-15 | 已修复 | blocked 状态与 Evidence 约束测试通过 |
 
 ## 维护要求
 

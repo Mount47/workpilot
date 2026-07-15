@@ -2,7 +2,7 @@
 
 ## 元信息
 
-- 状态：修复中
+- 状态：已回归验证
 - 首次发现：2026-07-15
 - 主要分类：MODEL_OUTPUT
 - 次要分类：ENGINEERING_DEFECT、PERFORMANCE_COST
@@ -44,9 +44,8 @@ Draft Validator 仍强制非空值必须有 refs、空值不能引用 Evidence�
 - JSON Schema 测试确认模型侧字段不含 SupportedText `$ref`；
 - 领域对象物化与字段 Evidence 测试通过；
 - 全量 171 项测试通过；
-- 尚未再次调用 qwen-plus，因此状态为“修复中”。
+- 修复后 qwen-plus 成功构建 15 个 Claim、3 个 ActionItem 和 3 个 Risk，Entity Field Support 为 100%；BC-011 已回归验证。Run 后续暴露的 Claim exact quote 与 RiskStatus 问题分别登记为 BC-012、BC-013。
 
 ## 面试复盘要点
 
 领域模型和 LLM 传输 Schema 不必完全相同。内部模型应追求强约束，模型输出契约应追求低歧义；通过显式 Mapper 可以同时保留可靠性和模型兼容性。
-
