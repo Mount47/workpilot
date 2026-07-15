@@ -65,7 +65,9 @@ ClaimBuilder 主要按单条 Evidence 构建实体，Prompt 没有要求在字�
 - Trace 新增 action/risk 数量及实体投影物理模型调用数；
 - 原有 EntityFieldVerifier 继续负责字段原文支持和引用边界验证。
 
-代码回归为 179 passed。该阶段尚需再次调用 qwen-plus 验证，不能提前标记修复完成。
+第二次 qwen-plus 回归已执行，但独立投影产生过量实体和无依据枚举，Run failed。Action Recall 达到 100%，Mitigation Recall 保持 100%，但 Action Precision 仅 50%、Risk Recall 仅 50%、字段支持率仅 52.38%。详细失败拆分为 BC-015。
+
+因此 EntityBuilder 已改为显式实验开关 `--entity-projection`，默认关闭，不替换已通过 Golden 的旧路径。代码回归为 180 passed。BC-014 仍为修复中。
 
 ## 面试复盘要点
 
