@@ -45,9 +45,11 @@ class EvalRunner:
         self,
         provider_name: str = "stub",
         provider_kwargs: dict | None = None,
+        enable_entity_projection: bool = False,
     ) -> None:
         self.provider_name = provider_name
         self.provider_kwargs = provider_kwargs or {}
+        self.enable_entity_projection = enable_entity_projection
 
     def run(self, suite: EvalSuite, output_dir: Path) -> EvaluationReport:
         output_dir = output_dir.resolve()
@@ -83,6 +85,7 @@ class EvalRunner:
                 goal=case.goal,
                 output_dir=case_output,
                 provider=provider,
+                enable_entity_projection=self.enable_entity_projection,
             )
             run = runtime.execute()
             checks = self._load_checks(case_output)

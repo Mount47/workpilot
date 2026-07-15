@@ -29,6 +29,11 @@ class EntityFieldVerifier(Verifier):
                     claim=claims.get(action.claim_id),
                     description=action.description,
                     source_refs=action.source_refs,
+                    field_refs=[
+                        *action.owner.evidence_refs,
+                        *action.due_date_text.evidence_refs,
+                        *action.status_evidence_refs,
+                    ],
                     location=location,
                 )
             )
@@ -65,6 +70,12 @@ class EntityFieldVerifier(Verifier):
                     claim=claims.get(risk.claim_id),
                     description=risk.description,
                     source_refs=risk.source_refs,
+                    field_refs=[
+                        *risk.owner.evidence_refs,
+                        *risk.severity_evidence_refs,
+                        *risk.status_evidence_refs,
+                        *risk.mitigation.evidence_refs,
+                    ],
                     location=location,
                 )
             )
@@ -110,6 +121,7 @@ class EntityFieldVerifier(Verifier):
         claim,
         description: str,
         source_refs: list[str],
+        field_refs: list[str],
         location: str,
     ) -> list[VerifyResult]:
         if claim is None:
@@ -123,9 +135,8 @@ class EntityFieldVerifier(Verifier):
                     message="Structured entity references a missing Claim.",
                 )
             ]
-        passed = description == claim.text and set(source_refs) == set(
-            claim.evidence_refs
-        )
+        expected_refs = {*claim.evidence_refs, *field_refs}
+        passed = description == claim.text and set(source_refs) == expected_refs
         return [
             VerifyResult(
                 check_id="entity.claim_contract",
@@ -134,9 +145,9 @@ class EntityFieldVerifier(Verifier):
                 artifact="project_snapshot.json",
                 location=location,
                 message=(
-                    "Entity description and source refs match its Claim."
+                    "Entity description and source refs match its Claim and fields."
                     if passed
-                    else "Entity description or source refs diverge from its Claim."
+                    else "Entity description or source refs diverge from its Claim/fields."
                 ),
             )
         ]

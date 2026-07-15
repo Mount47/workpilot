@@ -306,6 +306,7 @@ def test_runtime_revision_reenters_only_reentrant_plan_steps(
         goal="生成项目报告",
         output_dir=output,
         provider=RevisionProvider(),
+        enable_entity_projection=True,
     )
 
     result = runtime.execute()
@@ -333,6 +334,7 @@ def test_failed_revision_persists_latest_verification_report(
         goal="生成项目报告",
         output_dir=output,
         provider=FailingRevisionProvider(),
+        enable_entity_projection=True,
     )
 
     result = runtime.execute()

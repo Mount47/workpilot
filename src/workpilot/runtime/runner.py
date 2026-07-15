@@ -70,6 +70,7 @@ class Runtime:
         max_steps: int = 30,
         time_budget_seconds: int = 300,
         token_budget: int = 100_000,
+        enable_entity_projection: bool = False,
     ) -> None:
         self.run_id = f"run_{uuid.uuid4().hex[:8]}"
         self.run = Run(
@@ -111,6 +112,7 @@ class Runtime:
             time_budget_seconds=self.contract.time_budget_seconds,
         )
         self.model_router = model_router
+        self.enable_entity_projection = enable_entity_projection
         if model_router is None:
             self.evidence_provider = provider
             analysis_provider = provider
@@ -458,11 +460,12 @@ class Runtime:
                         if attempt == 1
                         else self.revision_entity_builder
                     )
-                    self.project_snapshot = entity_builder.build(
-                        goal=self.contract.goal,
-                        project_snapshot=self.project_snapshot,
-                        evidence_store=self.evidence_store,
-                    )
+                    if self.enable_entity_projection:
+                        self.project_snapshot = entity_builder.build(
+                            goal=self.contract.goal,
+                            project_snapshot=self.project_snapshot,
+                            evidence_store=self.evidence_store,
+                        )
                 except ProviderResponseError as exc:
                     for generation in exc.generations:
                         self._observe_model_call(generation, step_id)
@@ -484,8 +487,11 @@ class Runtime:
                             self.project_snapshot.action_items
                         ),
                         "risk_count": len(self.project_snapshot.risks),
-                        "entity_projection_model_call_count": len(
-                            entity_builder.get_model_calls()
+                        "entity_projection_enabled": self.enable_entity_projection,
+                        "entity_projection_model_call_count": (
+                            len(entity_builder.get_model_calls())
+                            if self.enable_entity_projection
+                            else 0
                         ),
                     },
                     step_id=step_id,

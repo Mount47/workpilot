@@ -49,6 +49,11 @@ def run(
         "--route-config",
         help="JSON model routing configuration",
     ),
+    entity_projection: bool = typer.Option(
+        False,
+        "--entity-projection",
+        help="Enable experimental independent Action/Risk projection",
+    ),
 ) -> None:
     """Execute a mission on a workspace."""
     if not workspace.exists():
@@ -85,6 +90,7 @@ def run(
         max_steps=max_steps,
         time_budget_seconds=time_budget_seconds,
         token_budget=token_budget,
+        enable_entity_projection=entity_projection,
     )
 
     typer.echo(f"[WorkPilot] Starting run: {runtime.run_id}")
@@ -142,6 +148,11 @@ def evaluate(
     provider: str = typer.Option("stub", help="LLM provider name"),
     model: Optional[str] = typer.Option(None, help="Model name override"),
     base_url: Optional[str] = typer.Option(None, "--base-url", help="Custom API base URL"),
+    entity_projection: bool = typer.Option(
+        False,
+        "--entity-projection",
+        help="Enable experimental independent Action/Risk projection",
+    ),
 ) -> None:
     """Run a reproducible offline evaluation suite."""
     if not suite.exists():
@@ -158,6 +169,7 @@ def evaluate(
     report = EvalRunner(
         provider_name=provider,
         provider_kwargs=provider_kwargs,
+        enable_entity_projection=entity_projection,
     ).run(eval_suite, output)
     summary = report.summary
     typer.echo(f"[WorkPilot] Evaluation completed: {report.suite_name}")

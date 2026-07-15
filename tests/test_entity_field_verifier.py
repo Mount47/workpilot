@@ -86,13 +86,26 @@ def test_invented_field_value_fails_verification() -> None:
     assert failure.location == "action_items.A-0001.owner"
 
 
-def test_field_cannot_cite_outside_parent_claim() -> None:
+def test_field_cannot_cite_outside_entity_sources() -> None:
     results = EntityFieldVerifier(_store()).verify(
         _snapshot(SupportedText(value="王五", evidence_refs=["E-0002"]))
     )
 
-    failure = next(result for result in results if result.status == "failed")
+    failure = next(
+        result
+        for result in results
+        if result.check_id == "entity.field_parent_support"
+    )
     assert failure.check_id == "entity.field_parent_support"
+
+
+def test_cross_evidence_field_is_allowed_when_entity_sources_include_it() -> None:
+    snapshot = _snapshot(SupportedText(value="王五", evidence_refs=["E-0002"]))
+    snapshot.action_items[0].source_refs.append("E-0002")
+
+    results = EntityFieldVerifier(_store()).verify(snapshot)
+
+    assert not [result for result in results if result.status == "failed"]
 
 
 def test_unknown_optional_field_is_explicitly_observable() -> None:
