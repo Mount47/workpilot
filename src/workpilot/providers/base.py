@@ -24,6 +24,8 @@ SAFE_STRUCTURED_VALIDATION_MESSAGES = frozenset(
         "Value error, only action_item claim can contain action_item fields",
         "Value error, risk or blocker claim requires risk fields",
         "Value error, only risk or blocker claim can contain risk fields",
+        "Value error, primary evidence reference must belong to claim evidence",
+        "Value error, only explicit fact can select primary evidence",
         "Value error, null supported text cannot cite evidence",
         "Value error, supported text value cannot be blank",
         "Value error, non-null supported text requires evidence references",

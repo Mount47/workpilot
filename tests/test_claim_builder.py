@@ -242,6 +242,15 @@ def test_explicit_claim_restores_only_a_missing_source_list_marker() -> None:
 
 
 def test_explicit_claim_does_not_repair_a_paraphrase() -> None:
+    store = _evidence_store()
+    store.insert(
+        Evidence(
+            evidence_id="E-0002",
+            locator=SourceLocator.for_file_lines("meeting.md", 4, 4),
+            quote="另一个项目事实。",
+            evidence_type="context",
+        )
+    )
     provider = MagicMock()
     provider.generate_structured.return_value = StructuredGenerationResult(
         value=ClaimDraftCollection(
@@ -250,7 +259,36 @@ def test_explicit_claim_does_not_repair_a_paraphrase() -> None:
                     text="计划已经确定。",
                     claim_type=ClaimType.EXPLICIT_FACT,
                     category=ClaimCategory.DECISION,
+                    evidence_refs=["E-0001", "E-0002"],
+                )
+            ]
+        ),
+        generations=(GenerationResult(content="{}", provider="test", model="test"),),
+    )
+    builder = ClaimBuilder(provider)
+
+    snapshot = builder.build(
+        project_id="project-1",
+        snapshot_id="snapshot-1",
+        goal="生成项目报告",
+        evidence_store=store,
+    )
+
+    assert snapshot.claims[0].text == "计划已经确定。"
+    assert builder.get_claim_text_repair_count() == 0
+
+
+def test_explicit_claim_uses_selected_primary_evidence_quote() -> None:
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=ClaimDraftCollection(
+            claims=[
+                ClaimDraft(
+                    text="模型改写的文本",
+                    claim_type=ClaimType.EXPLICIT_FACT,
+                    category=ClaimCategory.DECISION,
                     evidence_refs=["E-0001"],
+                    primary_evidence_ref="E-0001",
                 )
             ]
         ),
@@ -265,5 +303,16 @@ def test_explicit_claim_does_not_repair_a_paraphrase() -> None:
         evidence_store=_evidence_store(),
     )
 
-    assert snapshot.claims[0].text == "计划已经确定。"
-    assert builder.get_claim_text_repair_count() == 0
+    assert snapshot.claims[0].text == "项目计划已经确认。"
+    assert builder.get_claim_text_repair_count() == 1
+
+
+def test_primary_evidence_must_belong_to_claim_refs() -> None:
+    with pytest.raises(ValidationError, match="must belong"):
+        ClaimDraft(
+            text="项目计划已经确认。",
+            claim_type=ClaimType.EXPLICIT_FACT,
+            category=ClaimCategory.DECISION,
+            evidence_refs=["E-0001"],
+            primary_evidence_ref="E-9999",
+        )

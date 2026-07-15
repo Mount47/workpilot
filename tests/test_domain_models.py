@@ -14,6 +14,7 @@ from workpilot.domain import (
     ProjectSnapshot,
     Risk,
     RiskLevel,
+    RiskStatus,
     SourceLocator,
     SupportedText,
 )
@@ -110,6 +111,19 @@ def test_action_and_risk_require_support_for_known_enums() -> None:
             severity=RiskLevel.HIGH,
             source_refs=["E-0001"],
         )
+
+
+def test_risk_status_supports_explicit_blocked_state() -> None:
+    risk = Risk(
+        risk_id="R-0001",
+        claim_id="C-0001",
+        description="发布被阻塞。",
+        status=RiskStatus.BLOCKED,
+        status_evidence_refs=["E-0001"],
+        source_refs=["E-0001"],
+    )
+
+    assert risk.status == RiskStatus.BLOCKED
 
 
 def test_project_snapshot_contains_formal_business_entities() -> None:

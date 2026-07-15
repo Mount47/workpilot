@@ -29,6 +29,7 @@ Rules:
 - Use only the supplied evidence; never add facts from general knowledge.
 - Every non-unknown claim must cite one or more supplied evidence IDs.
 - explicit_fact text must be an exact evidence quote, without paraphrasing.
+- For explicit_fact, set primary_evidence_ref to the Evidence ID whose quote is the claim text.
 - Use derived_fact only when derivation describes a deterministic calculation.
 - Use analytical_judgement only for a clearly labelled analysis supported by evidence.
 - Do not emit duplicate claims.
@@ -133,6 +134,7 @@ class ClaimDraft(BaseModel):
     claim_type: ClaimType
     category: ClaimCategory
     evidence_refs: list[str] = Field(default_factory=list)
+    primary_evidence_ref: str | None = None
     derivation: str | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     action_item: ActionItemDraft | None = None
@@ -144,6 +146,7 @@ class ClaimDraft(BaseModel):
         if self.claim_type == ClaimType.UNKNOWN:
             if (
                 self.evidence_refs
+                or self.primary_evidence_ref is not None
                 or self.derivation is not None
                 or self.action_item is not None
                 or self.risk is not None
@@ -152,6 +155,16 @@ class ClaimDraft(BaseModel):
             return self
         if not self.evidence_refs:
             raise ValueError("non-unknown claim requires evidence references")
+        if self.claim_type == ClaimType.EXPLICIT_FACT:
+            if (
+                self.primary_evidence_ref is not None
+                and self.primary_evidence_ref not in self.evidence_refs
+            ):
+                raise ValueError(
+                    "primary evidence reference must belong to claim evidence"
+                )
+        elif self.primary_evidence_ref is not None:
+            raise ValueError("only explicit fact can select primary evidence")
         if self.claim_type == ClaimType.DERIVED_FACT and not self.derivation:
             raise ValueError("derived fact requires a derivation")
         if self.category == ClaimCategory.ACTION_ITEM and self.action_item is None:
@@ -351,6 +364,15 @@ class ClaimBuilder:
         """Restore an Evidence list marker without accepting a paraphrase."""
         if draft.claim_type != ClaimType.EXPLICIT_FACT:
             return draft.text
+        selected_ref = draft.primary_evidence_ref
+        if selected_ref is None and len(set(draft.evidence_refs)) == 1:
+            selected_ref = draft.evidence_refs[0]
+        if selected_ref is not None:
+            evidence = evidence_store.get_by_id(selected_ref)
+            if evidence is not None:
+                if evidence.quote != draft.text:
+                    self._claim_text_repair_count += 1
+                return evidence.quote
         normalized = self._without_list_marker(draft.text)
         matches = []
         for evidence_id in dict.fromkeys(draft.evidence_refs):

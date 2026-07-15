@@ -173,6 +173,7 @@ class RiskStatus(str, Enum):
 
     UNKNOWN = "unknown"
     OPEN = "open"
+    BLOCKED = "blocked"
     MITIGATING = "mitigating"
     CLOSED = "closed"
 
