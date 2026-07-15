@@ -40,6 +40,11 @@ Rules:
 - Every non-null business field must include its matching *_evidence_refs list.
 - owner, due_date_text, and mitigation values must be exact substrings of their cited evidence.
 - Field evidence refs must also appear in the parent claim evidence_refs.
+- Before leaving an entity field null, inspect every supplied Evidence item for the same project item or subject.
+- Cross-source fields are allowed: add the supporting Evidence ID to both the parent claim evidence_refs and the field refs.
+- Prefer a dedicated action record as the primary action Claim, then enrich it with owner or due-date Evidence about the same work item.
+- A concrete response phrase such as "排查原因" or "降级发布" may be risk mitigation when explicitly written.
+- Do not merge evidence for different project IDs, work items, or owners.
 - If a field is not explicit in evidence, set its value to null and refs to [].
 - Use status/severity=unknown unless the exact normalized value is explicit in evidence.
 - If evidence is insufficient, omit the claim instead of inventing it.

@@ -212,6 +212,29 @@ def test_stub_classification_uses_action_section_before_risk_keywords() -> None:
     )
 
 
+def test_stub_classification_prefers_explicit_delivery_action_in_mixed_sentence() -> None:
+    content = """## 讨论内容
+
+1. API 设计仍未确定，李四需要本周给出方案，否则开发将被阻塞。
+2. 告警频率上升，需要排查原因。
+"""
+
+    extraction = StubProvider().extract_evidence_from_file(
+        "meeting.md",
+        content,
+        "生成周报",
+    )
+
+    by_quote = {candidate.quote: candidate for candidate in extraction.candidates}
+    assert (
+        by_quote[
+            "1. API 设计仍未确定，李四需要本周给出方案，否则开发将被阻塞。"
+        ].evidence_type
+        == "action_item"
+    )
+    assert by_quote["2. 告警频率上升，需要排查原因。"].evidence_type == "risk"
+
+
 def test_extractor_reports_per_source_acceptance(extractor: EvidenceExtractor) -> None:
     files = extractor.workspace.list_files()
 

@@ -102,6 +102,12 @@ class StubProvider(LLMProvider):
         if normalized_section in {"下一步", "行动项", "待办"}:
             return EvidenceType.ACTION_ITEM
 
+        strong_action_signals = ["给出", "输出", "完成", "启动"]
+        if "需要" in line and any(
+            signal in line for signal in strong_action_signals
+        ):
+            return EvidenceType.ACTION_ITEM
+
         risk_signals = ["blocked", "告警", "风险", "delay", "阻塞", "上升", "失败"]
         if any(s in lower for s in risk_signals):
             return EvidenceType.RISK

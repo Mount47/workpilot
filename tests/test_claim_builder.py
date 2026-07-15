@@ -83,6 +83,9 @@ def test_provider_builder_assigns_ids_and_deduplicates_refs() -> None:
     assert snapshot.claims[0].evidence_refs == ["E-0001"]
     assert len(builder.get_model_calls()) == 1
     provider.generate_structured.assert_called_once()
+    system_prompt = provider.generate_structured.call_args.kwargs["system_prompt"]
+    assert "Cross-source fields are allowed" in system_prompt
+    assert "Before leaving an entity field null" in system_prompt
 
 
 def test_empty_evidence_does_not_call_provider() -> None:

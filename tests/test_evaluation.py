@@ -53,6 +53,21 @@ def test_load_eval_suite_resolves_relative_workspace(tmp_path: Path) -> None:
     assert suite.cases[0].workspace == workspace.resolve()
 
 
+def test_bc005_golden_suite_is_exhaustive_and_labels_cross_source_due_date() -> None:
+    suite = load_eval_suite(Path("evals/BC-005结构化字段回归.json"))
+    case = suite.cases[0]
+
+    assert case.expected_entities_exhaustive is True
+    assert len(case.expected_action_items) == 4
+    payment_action = next(
+        item
+        for item in case.expected_action_items
+        if item.claim_text == "- 李四：输出支付重试 API 设计文档。"
+    )
+    assert payment_action.due_date_text is not None
+    assert payment_action.due_date_text.value == "本周五"
+
+
 def test_expected_field_distinguishes_unlabelled_from_explicit_null(
     tmp_path: Path,
 ) -> None:
