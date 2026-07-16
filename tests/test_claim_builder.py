@@ -205,6 +205,60 @@ def test_provider_builder_materializes_supported_action_and_risk() -> None:
     assert snapshot.risks[0].mitigation.value == "降级发布"
 
 
+def test_dedicated_action_evidence_is_recovered_as_independent_claim() -> None:
+    store = EvidenceStore(run_id="run-1")
+    store.insert(
+        Evidence(
+            evidence_id="E-0001",
+            locator=SourceLocator.for_file_lines("meeting.md", 1, 1),
+            quote="李四需要本周给出支付方案。",
+            evidence_type="action_item",
+        )
+    )
+    store.insert(
+        Evidence(
+            evidence_id="E-0002",
+            locator=SourceLocator.for_file_lines("meeting.md", 2, 2),
+            quote="- 李四：输出支付 API 设计文档。",
+            evidence_type="action_item",
+        )
+    )
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=ClaimDraftCollection(
+            claims=[
+                ClaimDraft(
+                    text="李四需要本周给出支付方案。",
+                    claim_type=ClaimType.EXPLICIT_FACT,
+                    category=ClaimCategory.ACTION_ITEM,
+                    evidence_refs=["E-0001", "E-0002"],
+                    primary_evidence_ref="E-0001",
+                    action_item=ActionItemDraft(
+                        owner="李四",
+                        owner_evidence_refs=["E-0001"],
+                    ),
+                )
+            ]
+        ),
+        generations=(),
+    )
+    builder = ClaimBuilder(provider)
+
+    snapshot = builder.build(
+        project_id="project-1",
+        snapshot_id="snapshot-1",
+        goal="生成项目报告",
+        evidence_store=store,
+    )
+
+    assert [claim.text for claim in snapshot.claims] == [
+        "李四需要本周给出支付方案。",
+        "- 李四：输出支付 API 设计文档。",
+    ]
+    assert snapshot.action_items[1].claim_id == snapshot.claims[1].claim_id
+    assert builder.get_dedicated_action_recovery_count() == 1
+
+
 def test_explicit_claim_restores_only_a_missing_source_list_marker() -> None:
     store = EvidenceStore(run_id="run-1")
     store.insert(

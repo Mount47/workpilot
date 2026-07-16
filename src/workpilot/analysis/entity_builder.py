@@ -261,6 +261,12 @@ class EntityBuilder:
                 draft.mitigation_evidence_refs,
                 evidence_store,
             )
+            if mitigation is not None and not self._mitigation_role_supported(
+                mitigation
+            ):
+                mitigation = None
+                mitigation_refs = []
+                self._field_downgrade_count += 1
             severity, severity_refs = self._supported_enum_or_unknown(
                 draft.severity,
                 draft.severity_evidence_refs,
@@ -359,6 +365,17 @@ class EntityBuilder:
                 r"(?:请\s*)?(?:输出|提交|完成|启动|协调|排查|确认|跟进|处理|准备)"
                 r"|(?:prepare|submit|complete|start|coordinate|investigate|confirm)\b",
                 normalized,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _mitigation_role_supported(value: str) -> bool:
+        return bool(
+            re.search(
+                r"(?:排查|修复|降级|回滚|切换|补充|调整|协调|沟通|加急|监控|"
+                r"investigate|fix|mitigate|rollback|switch|escalate|monitor)",
+                value,
                 flags=re.IGNORECASE,
             )
         )

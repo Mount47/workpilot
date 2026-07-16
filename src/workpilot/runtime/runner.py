@@ -483,6 +483,9 @@ class Runtime:
                         "claim_text_repair_count": (
                             builder.get_claim_text_repair_count()
                         ),
+                        "dedicated_action_recovery_count": (
+                            builder.get_dedicated_action_recovery_count()
+                        ),
                         "action_item_count": len(
                             self.project_snapshot.action_items
                         ),

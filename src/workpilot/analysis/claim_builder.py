@@ -197,6 +197,7 @@ class ClaimBuilder:
         self.provider = provider
         self._model_calls: list[GenerationResult] = []
         self._claim_text_repair_count = 0
+        self._dedicated_action_recovery_count = 0
 
     def build(
         self,
@@ -210,6 +211,7 @@ class ClaimBuilder:
         """Build a ProjectSnapshot from validated evidence."""
         self._model_calls = []
         self._claim_text_repair_count = 0
+        self._dedicated_action_recovery_count = 0
         evidences = evidence_store.list_all()
         source_ids = sorted({evidence.locator.source_id for evidence in evidences})
 
@@ -242,6 +244,11 @@ class ClaimBuilder:
             )
             claims, action_items, risks = self._materialize_drafts(
                 drafts,
+                evidence_store,
+            )
+            self._recover_dedicated_action_claims(
+                claims,
+                action_items,
                 evidence_store,
             )
 
@@ -361,6 +368,45 @@ class ClaimBuilder:
                 )
         return claims, action_items, risks
 
+    def _recover_dedicated_action_claims(
+        self,
+        claims: list[Claim],
+        action_items: list[ActionItem],
+        evidence_store: EvidenceStore,
+    ) -> None:
+        """Preserve every explicit action record as its own auditable Claim."""
+        action_claim_texts = {
+            claim.text
+            for claim in claims
+            if claim.category == ClaimCategory.ACTION_ITEM
+        }
+        for evidence in evidence_store.list_all():
+            if (
+                evidence.evidence_type != ClaimCategory.ACTION_ITEM.value
+                or evidence.quote in action_claim_texts
+            ):
+                continue
+            claim_id = f"C-{len(claims) + 1:04d}"
+            claim = Claim(
+                claim_id=claim_id,
+                text=evidence.quote,
+                claim_type=ClaimType.EXPLICIT_FACT,
+                category=ClaimCategory.ACTION_ITEM,
+                evidence_refs=[evidence.evidence_id],
+                confidence=1.0,
+            )
+            claims.append(claim)
+            action_items.append(
+                ActionItem(
+                    action_id=f"A-{len(action_items) + 1:04d}",
+                    claim_id=claim_id,
+                    description=claim.text,
+                    source_refs=claim.evidence_refs,
+                )
+            )
+            action_claim_texts.add(evidence.quote)
+            self._dedicated_action_recovery_count += 1
+
     def _canonical_explicit_text(
         self,
         draft: ClaimDraft,
@@ -451,6 +497,10 @@ class ClaimBuilder:
     def get_claim_text_repair_count(self) -> int:
         """Return deterministic marker-only repairs made by the latest build."""
         return self._claim_text_repair_count
+
+    def get_dedicated_action_recovery_count(self) -> int:
+        """Return action Evidence records restored as independent Claims."""
+        return self._dedicated_action_recovery_count
 
     @staticmethod
     def _format_evidence(evidence_store: EvidenceStore) -> str:

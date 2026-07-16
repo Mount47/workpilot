@@ -300,6 +300,39 @@ def test_local_due_date_overrides_cross_evidence_date() -> None:
     assert builder.get_field_canonicalization_count() == 1
 
 
+def test_blocker_dependency_is_not_accepted_as_mitigation() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(claim_id="C-0001"),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[
+                ProjectedRiskDraft(
+                    claim_id="C-0001",
+                    mitigation="API 未确定",
+                    mitigation_evidence_refs=["E-0001"],
+                ),
+                ProjectedRiskDraft(claim_id="C-0004"),
+            ],
+        ),
+        generations=(),
+    )
+    builder = EntityBuilder(provider)
+
+    result = builder.build(
+        goal="生成周报",
+        project_snapshot=snapshot,
+        evidence_store=store,
+    )
+
+    assert result.risks[0].mitigation.value is None
+    assert result.risks[0].mitigation.evidence_refs == []
+    assert builder.get_field_downgrade_count() == 1
+
+
 def test_unknown_field_evidence_is_rejected_before_downgrade() -> None:
     snapshot, store = _fixture()
     provider = MagicMock()
