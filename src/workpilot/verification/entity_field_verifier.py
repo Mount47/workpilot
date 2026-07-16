@@ -187,7 +187,7 @@ class EntityFieldVerifier(Verifier):
             field_name=field_name,
             parent_refs=parent_refs,
             location=location,
-            case_insensitive=True,
+            normalize_enum=True,
         )
 
     def _verify_value(
@@ -198,7 +198,7 @@ class EntityFieldVerifier(Verifier):
         field_name: str,
         parent_refs: list[str],
         location: str,
-        case_insensitive: bool = False,
+        normalize_enum: bool = False,
     ) -> list[VerifyResult]:
         if not set(evidence_refs).issubset(parent_refs):
             return [
@@ -225,12 +225,12 @@ class EntityFieldVerifier(Verifier):
                     message=f"{field_name} references missing Evidence.",
                 )
             ]
-        expected = value.casefold() if case_insensitive else value
+        expected = self._normalize_enum_text(value) if normalize_enum else value
         supported = any(
             expected
             in (
-                evidence.quote.casefold()
-                if case_insensitive
+                self._normalize_enum_text(evidence.quote)
+                if normalize_enum
                 else evidence.quote
             )
             for evidence in evidences
@@ -243,12 +243,18 @@ class EntityFieldVerifier(Verifier):
                 artifact="project_snapshot.json",
                 location=f"{location}.{field_name}",
                 message=(
-                    f"{field_name} is an exact Evidence substring."
+                    f"{field_name} is a normalized Evidence substring."
                     if supported
                     else f"{field_name} is not supported by its Evidence text."
                 ),
             )
         ]
+
+    @staticmethod
+    def _normalize_enum_text(value: str) -> str:
+        return " ".join(
+            value.replace("_", " ").replace("-", " ").casefold().split()
+        )
 
     def _resolve(self, evidence_refs: Iterable[str]):
         evidences = []

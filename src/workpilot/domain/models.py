@@ -152,6 +152,7 @@ class ActionStatus(str, Enum):
     """Normalized action lifecycle without inventing unsupported state."""
 
     UNKNOWN = "unknown"
+    PENDING = "pending"
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     BLOCKED = "blocked"

@@ -7,6 +7,8 @@ import pytest
 from workpilot.analysis.entity_builder import (
     EntityBuilder,
     EntityProjectionDraft,
+    ExcludedCandidateDraft,
+    ExclusionReason,
     ProjectedActionDraft,
     ProjectedRiskDraft,
 )
@@ -84,6 +86,11 @@ def test_entity_builder_projects_embedded_and_cross_evidence_fields() -> None:
             ],
             risks=[
                 ProjectedRiskDraft(
+                    claim_id="C-0001",
+                    owner="李四",
+                    owner_evidence_refs=["E-0001"],
+                ),
+                ProjectedRiskDraft(
                     claim_id="C-0004",
                     mitigation="排查原因",
                     mitigation_evidence_refs=["E-0004"],
@@ -103,11 +110,11 @@ def test_entity_builder_projects_embedded_and_cross_evidence_fields() -> None:
     assert result.action_items[0].claim_id == "C-0001"
     assert result.action_items[1].due_date_text.value == "本周五"
     assert result.action_items[1].source_refs == ["E-0002", "E-0003"]
-    assert result.risks[0].mitigation.value == "排查原因"
+    assert result.risks[1].mitigation.value == "排查原因"
     assert snapshot.action_items == []
 
 
-def test_entity_builder_rejects_unknown_claim_reference() -> None:
+def test_entity_builder_rejects_non_candidate_claim_reference() -> None:
     snapshot, store = _fixture()
     provider = MagicMock()
     provider.generate_structured.return_value = StructuredGenerationResult(
@@ -117,7 +124,122 @@ def test_entity_builder_rejects_unknown_claim_reference() -> None:
         generations=(),
     )
 
-    with pytest.raises(ValueError, match="unknown claim"):
+    with pytest.raises(ValueError, match="unknown action candidate"):
+        EntityBuilder(provider).build(
+            goal="生成周报",
+            project_snapshot=snapshot,
+            evidence_store=store,
+        )
+
+
+def test_entity_builder_requires_a_decision_for_every_candidate() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[ProjectedActionDraft(claim_id="C-0002")],
+            risks=[ProjectedRiskDraft(claim_id="C-0004")],
+        ),
+        generations=(),
+    )
+
+    with pytest.raises(ValueError, match="incomplete or unknown action"):
+        EntityBuilder(provider).build(
+            goal="生成周报",
+            project_snapshot=snapshot,
+            evidence_store=store,
+        )
+
+
+def test_duplicate_exclusion_must_target_selected_candidate() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(claim_id="C-0001"),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[ProjectedRiskDraft(claim_id="C-0004")],
+            risk_exclusions=[
+                ExcludedCandidateDraft(
+                    claim_id="C-0001",
+                    reason=ExclusionReason.DUPLICATE,
+                    duplicate_of_claim_id="C-9999",
+                )
+            ],
+        ),
+        generations=(),
+    )
+
+    with pytest.raises(ValueError, match="duplicate target must be a selected"):
+        EntityBuilder(provider).build(
+            goal="生成周报",
+            project_snapshot=snapshot,
+            evidence_store=store,
+        )
+
+
+def test_unsupported_enum_is_downgraded_to_unknown() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(claim_id="C-0001"),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[
+                ProjectedRiskDraft(
+                    claim_id="C-0004",
+                    severity="medium",
+                    severity_evidence_refs=["E-0004"],
+                )
+            ],
+            risk_exclusions=[
+                ExcludedCandidateDraft(
+                    claim_id="C-0001",
+                    reason=ExclusionReason.NOT_ENTITY,
+                )
+            ],
+        ),
+        generations=(),
+    )
+    builder = EntityBuilder(provider)
+
+    result = builder.build(
+        goal="生成周报",
+        project_snapshot=snapshot,
+        evidence_store=store,
+    )
+
+    assert result.risks[0].severity.value == "unknown"
+    assert result.risks[0].severity_evidence_refs == []
+    assert builder.get_field_downgrade_count() == 1
+
+
+def test_unknown_field_evidence_is_rejected_before_downgrade() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(
+                    claim_id="C-0001",
+                    owner="李四",
+                    owner_evidence_refs=["E-9999"],
+                ),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[
+                ProjectedRiskDraft(claim_id="C-0001"),
+                ProjectedRiskDraft(claim_id="C-0004"),
+            ],
+        ),
+        generations=(),
+    )
+
+    with pytest.raises(ValueError, match="unknown evidence"):
         EntityBuilder(provider).build(
             goal="生成周报",
             project_snapshot=snapshot,

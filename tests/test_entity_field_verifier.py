@@ -2,6 +2,7 @@
 
 from workpilot.domain import (
     ActionItem,
+    ActionStatus,
     Claim,
     ClaimCategory,
     ClaimType,
@@ -104,6 +105,27 @@ def test_cross_evidence_field_is_allowed_when_entity_sources_include_it() -> Non
     snapshot.action_items[0].source_refs.append("E-0002")
 
     results = EntityFieldVerifier(_store()).verify(snapshot)
+
+    assert not [result for result in results if result.status == "failed"]
+
+
+def test_enum_support_normalizes_spaces_and_underscores() -> None:
+    store = _store()
+    store.insert(
+        Evidence(
+            evidence_id="E-0003",
+            locator=SourceLocator.for_file_lines("meeting.md", 3, 3),
+            quote="当前状态为 in progress。",
+            evidence_type="action_item",
+        )
+    )
+    snapshot = _snapshot(SupportedText(value="李四", evidence_refs=["E-0001"]))
+    action = snapshot.action_items[0]
+    action.status = ActionStatus.IN_PROGRESS
+    action.status_evidence_refs = ["E-0003"]
+    action.source_refs.append("E-0003")
+
+    results = EntityFieldVerifier(store).verify(snapshot)
 
     assert not [result for result in results if result.status == "failed"]
 

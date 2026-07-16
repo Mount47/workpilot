@@ -493,6 +493,11 @@ class Runtime:
                             if self.enable_entity_projection
                             else 0
                         ),
+                        "entity_field_downgrade_count": (
+                            entity_builder.get_field_downgrade_count()
+                            if self.enable_entity_projection
+                            else 0
+                        ),
                     },
                     step_id=step_id,
                     parent_step_id="run",
