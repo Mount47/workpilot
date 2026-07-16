@@ -40,7 +40,7 @@
 | BC-012 | explicit 事实文本所有权错误 | Verification / Domain | 2026-07-15 | 已回归验证 | qwen-plus Claim Support 100% |
 | BC-013 | RiskStatus 缺少 blocked | Domain Modeling | 2026-07-15 | 已回归验证 | qwen-plus 修订恢复后 Run passed |
 | BC-014 | 跨 Evidence 字段召回不足 | Model Output / Evaluation | 2026-07-15 | 修复中 | Prompt 与穷举 Golden 已更新 |
-| BC-015 | 无候选约束导致实体过投影 | Model Output / Verification | 2026-07-15 | 修复中 | 实验开关默认关闭，待候选门禁 |
+| BC-015 | 无候选约束导致实体过投影 | Model Output / Verification | 2026-07-15 | 修复中 | 候选门禁离线通过，待真实回归 |
 
 ## 维护要求
 
