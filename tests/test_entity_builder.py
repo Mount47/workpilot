@@ -253,6 +253,53 @@ def test_duplicate_text_gate_accepts_same_business_subject() -> None:
     )
 
 
+def test_pending_issue_without_action_signal_is_not_a_candidate() -> None:
+    claim = Claim(
+        claim_id="C-0100",
+        text="- PROJ-104: 订单导出功能 (未分配, P2, pending)",
+        claim_type=ClaimType.EXPLICIT_FACT,
+        category=ClaimCategory.ACTION_ITEM,
+        evidence_refs=["E-0100"],
+    )
+
+    candidates = EntityBuilder._build_candidates([claim])
+
+    assert candidates.action_claim_ids == []
+
+
+def test_local_due_date_overrides_cross_evidence_date() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(
+                    claim_id="C-0001",
+                    due_date_text="本周五",
+                    due_date_evidence_refs=["E-0003"],
+                ),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[
+                ProjectedRiskDraft(claim_id="C-0001"),
+                ProjectedRiskDraft(claim_id="C-0004"),
+            ],
+        ),
+        generations=(),
+    )
+    builder = EntityBuilder(provider)
+
+    result = builder.build(
+        goal="生成周报",
+        project_snapshot=snapshot,
+        evidence_store=store,
+    )
+
+    assert result.action_items[0].due_date_text.value == "本周"
+    assert result.action_items[0].due_date_text.evidence_refs == ["E-0001"]
+    assert builder.get_field_canonicalization_count() == 1
+
+
 def test_unknown_field_evidence_is_rejected_before_downgrade() -> None:
     snapshot, store = _fixture()
     provider = MagicMock()

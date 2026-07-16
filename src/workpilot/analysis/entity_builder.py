@@ -37,6 +37,8 @@ Rules:
 - Separate action records may remain separate when one states an obligation and
   another records a concrete assignment.
 - For each field, inspect all Evidence about the same work item before returning null.
+- Prefer an explicit field in the entity's own Claim Evidence. Use cross-Evidence
+  enrichment only when the local field is absent.
 - Cross-Evidence enrichment is allowed only for the same project item or subject.
 - A field value must be an exact substring of every cited field Evidence quote.
 - Do not attach an owner merely because that person owns a related action.
@@ -105,6 +107,7 @@ class EntityBuilder:
         self.provider = provider
         self._model_calls: list[GenerationResult] = []
         self._field_downgrade_count = 0
+        self._field_canonicalization_count = 0
         self._decision_summary: dict = {}
 
     def build(
@@ -116,6 +119,7 @@ class EntityBuilder:
     ) -> ProjectSnapshot:
         self._model_calls = []
         self._field_downgrade_count = 0
+        self._field_canonicalization_count = 0
         self._decision_summary = {}
         if not project_snapshot.claims or isinstance(self.provider, StubProvider):
             return project_snapshot
@@ -194,6 +198,16 @@ class EntityBuilder:
                 draft.due_date_evidence_refs,
                 evidence_store,
             )
+            local_due_date = self._extract_local_due_date(
+                claim,
+                evidence_store,
+            )
+            if local_due_date is not None:
+                local_value, local_ref = local_due_date
+                if due_date_text != local_value or due_date_refs != [local_ref]:
+                    self._field_canonicalization_count += 1
+                due_date_text = local_value
+                due_date_refs = [local_ref]
             status, status_refs = self._supported_enum_or_unknown(
                 draft.status,
                 draft.status_evidence_refs,
@@ -296,7 +310,10 @@ class EntityBuilder:
         action_ids = []
         risk_ids = []
         for claim in claims:
-            if claim.category == ClaimCategory.ACTION_ITEM or (
+            if (
+                claim.category == ClaimCategory.ACTION_ITEM
+                and EntityBuilder._contains_action_signal(claim.text)
+            ) or (
                 claim.category == ClaimCategory.BLOCKER
                 and EntityBuilder._contains_action_obligation(claim.text)
             ):
@@ -318,6 +335,55 @@ class EntityBuilder:
                 flags=re.IGNORECASE,
             )
         )
+
+    @staticmethod
+    def _contains_action_signal(text: str) -> bool:
+        if EntityBuilder._contains_action_obligation(text):
+            return True
+        normalized = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s*", "", text)
+        assignment = re.match(r"([^:：]{1,30})[:：]\s*(.+)", normalized)
+        if assignment is not None:
+            subject = assignment.group(1).strip()
+            instruction = assignment.group(2).strip()
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", subject):
+                return bool(
+                    re.search(
+                        r"(?:输出|提交|完成|启动|协调|排查|确认|跟进|处理|准备|"
+                        r"prepare|submit|complete|start|coordinate|investigate|confirm)",
+                        instruction,
+                        flags=re.IGNORECASE,
+                    )
+                )
+        return bool(
+            re.match(
+                r"(?:请\s*)?(?:输出|提交|完成|启动|协调|排查|确认|跟进|处理|准备)"
+                r"|(?:prepare|submit|complete|start|coordinate|investigate|confirm)\b",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _extract_local_due_date(
+        claim: Claim,
+        evidence_store: EvidenceStore,
+    ) -> tuple[str, str] | None:
+        pattern = re.compile(
+            r"\b\d{4}-\d{2}-\d{2}\b"
+            r"|(?:本周|下周|上周)(?:[一二三四五六日天])?"
+            r"|(?<!本)(?<!下)(?<!上)周[一二三四五六日天]"
+            r"|(?:今天|明天|后天)"
+            r"|\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b",
+            flags=re.IGNORECASE,
+        )
+        for evidence_ref in claim.evidence_refs:
+            evidence = evidence_store.get_by_id(evidence_ref)
+            if evidence is None:
+                continue
+            match = pattern.search(evidence.quote)
+            if match is not None:
+                return match.group(0), evidence_ref
+        return None
 
     @staticmethod
     def _validate_candidate_decisions(
@@ -512,6 +578,9 @@ class EntityBuilder:
 
     def get_field_downgrade_count(self) -> int:
         return self._field_downgrade_count
+
+    def get_field_canonicalization_count(self) -> int:
+        return self._field_canonicalization_count
 
     def get_decision_summary(self) -> dict:
         return dict(self._decision_summary)

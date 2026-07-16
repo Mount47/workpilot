@@ -498,6 +498,11 @@ class Runtime:
                             if self.enable_entity_projection
                             else 0
                         ),
+                        "entity_field_canonicalization_count": (
+                            entity_builder.get_field_canonicalization_count()
+                            if self.enable_entity_projection
+                            else 0
+                        ),
                         "entity_projection_decisions": (
                             entity_builder.get_decision_summary()
                             if self.enable_entity_projection
