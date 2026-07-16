@@ -40,7 +40,9 @@
 | BC-012 | explicit 事实文本所有权错误 | Verification / Domain | 2026-07-15 | 已回归验证 | qwen-plus Claim Support 100% |
 | BC-013 | RiskStatus 缺少 blocked | Domain Modeling | 2026-07-15 | 已回归验证 | qwen-plus 修订恢复后 Run passed |
 | BC-014 | 跨 Evidence 字段召回不足 | Model Output / Evaluation | 2026-07-15 | 修复中 | Prompt 与穷举 Golden 已更新 |
-| BC-015 | 无候选约束导致实体过投影 | Model Output / Verification | 2026-07-15 | 修复中 | 候选门禁离线通过，待真实回归 |
+| BC-015 | 无候选约束导致实体过投影 | Model Output / Verification | 2026-07-15 | 修复中 | 多轮回归完成，剩余拆分 BC-016/017 |
+| BC-016 | 专用行动 Evidence 被合并 | Claim Granularity / Recall | 2026-07-16 | 修复中 | 独立 Claim 恢复已实现 |
+| BC-017 | 字段原文支持但业务角色错误 | Semantic Field Role | 2026-07-16 | 修复中 | mitigation 动作门禁已实现 |
 
 ## 维护要求
 
