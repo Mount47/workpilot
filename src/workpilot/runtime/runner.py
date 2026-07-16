@@ -498,6 +498,11 @@ class Runtime:
                             if self.enable_entity_projection
                             else 0
                         ),
+                        "entity_projection_decisions": (
+                            entity_builder.get_decision_summary()
+                            if self.enable_entity_projection
+                            else {}
+                        ),
                     },
                     step_id=step_id,
                     parent_step_id="run",

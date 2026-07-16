@@ -7,8 +7,7 @@ import pytest
 from workpilot.analysis.entity_builder import (
     EntityBuilder,
     EntityProjectionDraft,
-    ExcludedCandidateDraft,
-    ExclusionReason,
+    DuplicateCandidateDraft,
     ProjectedActionDraft,
     ProjectedRiskDraft,
 )
@@ -100,7 +99,8 @@ def test_entity_builder_projects_embedded_and_cross_evidence_fields() -> None:
         generations=(GenerationResult(content="{}", provider="test", model="test"),),
     )
 
-    result = EntityBuilder(provider).build(
+    builder = EntityBuilder(provider)
+    result = builder.build(
         goal="生成周报",
         project_snapshot=snapshot,
         evidence_store=store,
@@ -112,6 +112,8 @@ def test_entity_builder_projects_embedded_and_cross_evidence_fields() -> None:
     assert result.action_items[1].source_refs == ["E-0002", "E-0003"]
     assert result.risks[1].mitigation.value == "排查原因"
     assert snapshot.action_items == []
+    assert builder.get_decision_summary()["action_candidate_count"] == 2
+    assert builder.get_decision_summary()["risk_candidate_count"] == 2
 
 
 def test_entity_builder_rejects_non_candidate_claim_reference() -> None:
@@ -161,10 +163,9 @@ def test_duplicate_exclusion_must_target_selected_candidate() -> None:
                 ProjectedActionDraft(claim_id="C-0002"),
             ],
             risks=[ProjectedRiskDraft(claim_id="C-0004")],
-            risk_exclusions=[
-                ExcludedCandidateDraft(
+            risk_duplicates=[
+                DuplicateCandidateDraft(
                     claim_id="C-0001",
-                    reason=ExclusionReason.DUPLICATE,
                     duplicate_of_claim_id="C-9999",
                 )
             ],
@@ -190,16 +191,11 @@ def test_unsupported_enum_is_downgraded_to_unknown() -> None:
                 ProjectedActionDraft(claim_id="C-0002"),
             ],
             risks=[
+                ProjectedRiskDraft(claim_id="C-0001"),
                 ProjectedRiskDraft(
                     claim_id="C-0004",
                     severity="medium",
                     severity_evidence_refs=["E-0004"],
-                )
-            ],
-            risk_exclusions=[
-                ExcludedCandidateDraft(
-                    claim_id="C-0001",
-                    reason=ExclusionReason.NOT_ENTITY,
                 )
             ],
         ),
@@ -216,6 +212,45 @@ def test_unsupported_enum_is_downgraded_to_unknown() -> None:
     assert result.risks[0].severity.value == "unknown"
     assert result.risks[0].severity_evidence_refs == []
     assert builder.get_field_downgrade_count() == 1
+
+
+def test_unrelated_risks_cannot_be_marked_duplicate() -> None:
+    snapshot, store = _fixture()
+    provider = MagicMock()
+    provider.generate_structured.return_value = StructuredGenerationResult(
+        value=EntityProjectionDraft(
+            action_items=[
+                ProjectedActionDraft(claim_id="C-0001"),
+                ProjectedActionDraft(claim_id="C-0002"),
+            ],
+            risks=[ProjectedRiskDraft(claim_id="C-0004")],
+            risk_duplicates=[
+                DuplicateCandidateDraft(
+                    claim_id="C-0001",
+                    duplicate_of_claim_id="C-0004",
+                )
+            ],
+        ),
+        generations=(),
+    )
+
+    with pytest.raises(ValueError, match="lack deterministic overlap"):
+        EntityBuilder(provider).build(
+            goal="生成周报",
+            project_snapshot=snapshot,
+            evidence_store=store,
+        )
+
+
+def test_duplicate_text_gate_accepts_same_business_subject() -> None:
+    assert EntityBuilder._duplicate_text_supported(
+        "PROJ-101 支付重试逻辑 blocked，等待 API 设计确认",
+        "支付重试逻辑 API 设计仍未确定，需要给出方案",
+    )
+    assert not EntityBuilder._duplicate_text_supported(
+        "支付重试逻辑等待 API 设计",
+        "线上告警增加，需要排查原因",
+    )
 
 
 def test_unknown_field_evidence_is_rejected_before_downgrade() -> None:

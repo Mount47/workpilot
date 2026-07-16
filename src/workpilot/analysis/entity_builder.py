@@ -29,8 +29,9 @@ claims and evidence without rewriting, adding, or deleting Claims.
 
 Rules:
 - Use only supplied candidate Claim IDs and Evidence IDs.
-- Every candidate must appear exactly once as selected or excluded. Never create an
-  entity from a non-candidate Claim.
+- Every Action candidate must appear exactly once in action_items.
+- Every Risk candidate must appear exactly once in risks or risk_duplicates.
+- Never create an entity from a non-candidate Claim.
 - Return every explicit action assignment or obligation, even when its Claim is
   categorized as blocker, decision, or context rather than action_item.
 - Separate action records may remain separate when one states an obligation and
@@ -49,31 +50,16 @@ Rules:
 """
 
 
-class ExclusionReason(str, Enum):
-    """Auditable reason why an entity candidate was not selected."""
-
-    NOT_ENTITY = "not_entity"
-    DUPLICATE = "duplicate"
-
-
-class ExcludedCandidateDraft(BaseModel):
-    """Explicit disposition for a candidate not projected as an entity."""
+class DuplicateCandidateDraft(BaseModel):
+    """A Risk candidate merged into a selected canonical Risk."""
 
     claim_id: str = Field(min_length=1)
-    reason: ExclusionReason
-    duplicate_of_claim_id: str | None = None
+    duplicate_of_claim_id: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_duplicate_target(self) -> "ExcludedCandidateDraft":
-        if self.reason == ExclusionReason.DUPLICATE:
-            if self.duplicate_of_claim_id is None:
-                raise ValueError("duplicate exclusion requires canonical claim")
-            if self.duplicate_of_claim_id == self.claim_id:
-                raise ValueError("duplicate cannot reference itself")
-        elif self.duplicate_of_claim_id is not None:
-            raise ValueError(
-                "non-duplicate exclusion cannot reference canonical claim"
-            )
+    def validate_duplicate_target(self) -> "DuplicateCandidateDraft":
+        if self.duplicate_of_claim_id == self.claim_id:
+            raise ValueError("duplicate cannot reference itself")
         return self
 
 
@@ -93,9 +79,8 @@ class EntityProjectionDraft(BaseModel):
     """Flat, provider-facing entity projection response."""
 
     action_items: list[ProjectedActionDraft] = Field(default_factory=list)
-    action_exclusions: list[ExcludedCandidateDraft] = Field(default_factory=list)
     risks: list[ProjectedRiskDraft] = Field(default_factory=list)
-    risk_exclusions: list[ExcludedCandidateDraft] = Field(default_factory=list)
+    risk_duplicates: list[DuplicateCandidateDraft] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def reject_duplicate_claim_projection(self) -> "EntityProjectionDraft":
@@ -120,6 +105,7 @@ class EntityBuilder:
         self.provider = provider
         self._model_calls: list[GenerationResult] = []
         self._field_downgrade_count = 0
+        self._decision_summary: dict = {}
 
     def build(
         self,
@@ -130,6 +116,7 @@ class EntityBuilder:
     ) -> ProjectSnapshot:
         self._model_calls = []
         self._field_downgrade_count = 0
+        self._decision_summary = {}
         if not project_snapshot.claims or isinstance(self.provider, StubProvider):
             return project_snapshot
 
@@ -148,7 +135,15 @@ class EntityBuilder:
         self._model_calls.extend(response.generations)
         if not isinstance(response.value, EntityProjectionDraft):
             raise TypeError("provider returned an unexpected entity projection type")
-        self._validate_candidate_decisions(response.value, candidates)
+        self._validate_candidate_decisions(
+            response.value,
+            candidates,
+            project_snapshot.claims,
+        )
+        self._decision_summary = self._summarize_decisions(
+            response.value,
+            candidates,
+        )
         return self._materialize(
             project_snapshot,
             response.value,
@@ -328,18 +323,21 @@ class EntityBuilder:
     def _validate_candidate_decisions(
         projection: EntityProjectionDraft,
         candidates: EntityCandidateSet,
+        claims: list[Claim],
     ) -> None:
         EntityBuilder._validate_candidate_type(
             candidate_ids=candidates.action_claim_ids,
             selected_ids=[item.claim_id for item in projection.action_items],
-            exclusions=projection.action_exclusions,
+            duplicates=[],
             entity_type="action",
+            claims=claims,
         )
         EntityBuilder._validate_candidate_type(
             candidate_ids=candidates.risk_claim_ids,
             selected_ids=[item.claim_id for item in projection.risks],
-            exclusions=projection.risk_exclusions,
+            duplicates=projection.risk_duplicates,
             entity_type="risk",
+            claims=claims,
         )
 
     @staticmethod
@@ -347,24 +345,72 @@ class EntityBuilder:
         *,
         candidate_ids: list[str],
         selected_ids: list[str],
-        exclusions: list[ExcludedCandidateDraft],
+        duplicates: list[DuplicateCandidateDraft],
         entity_type: str,
+        claims: list[Claim],
     ) -> None:
-        excluded_ids = [item.claim_id for item in exclusions]
-        decisions = [*selected_ids, *excluded_ids]
+        duplicate_ids = [item.claim_id for item in duplicates]
+        decisions = [*selected_ids, *duplicate_ids]
         if len(decisions) != len(set(decisions)):
             raise ValueError(f"duplicate {entity_type} candidate decision")
         if set(decisions) != set(candidate_ids):
             raise ValueError(f"incomplete or unknown {entity_type} candidate decision")
         selected = set(selected_ids)
-        for exclusion in exclusions:
-            if (
-                exclusion.reason == ExclusionReason.DUPLICATE
-                and exclusion.duplicate_of_claim_id not in selected
-            ):
+        claims_by_id = {claim.claim_id: claim for claim in claims}
+        for duplicate in duplicates:
+            if duplicate.duplicate_of_claim_id not in selected:
                 raise ValueError(
                     f"{entity_type} duplicate target must be a selected candidate"
                 )
+            source = claims_by_id[duplicate.claim_id].text
+            target = claims_by_id[duplicate.duplicate_of_claim_id].text
+            if not EntityBuilder._duplicate_text_supported(source, target):
+                raise ValueError(
+                    f"{entity_type} duplicate claims lack deterministic overlap"
+                )
+
+    @staticmethod
+    def _duplicate_text_supported(left: str, right: str) -> bool:
+        def bigrams(value: str) -> set[str]:
+            normalized = "".join(
+                re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
+            ).replace("_", "")
+            return {
+                normalized[index : index + 2]
+                for index in range(max(0, len(normalized) - 1))
+            }
+
+        left_grams = bigrams(left)
+        right_grams = bigrams(right)
+        overlap = left_grams & right_grams
+        union = left_grams | right_grams
+        return len(overlap) >= 2 and bool(union) and len(overlap) / len(union) >= 0.12
+
+    @staticmethod
+    def _summarize_decisions(
+        projection: EntityProjectionDraft,
+        candidates: EntityCandidateSet,
+    ) -> dict:
+        def duplicates(items: list[DuplicateCandidateDraft]) -> list[dict]:
+            return [
+                {
+                    "claim_id": item.claim_id,
+                    "reason": "duplicate",
+                    "duplicate_of_claim_id": item.duplicate_of_claim_id,
+                }
+                for item in items
+            ]
+
+        return {
+            "action_candidate_count": len(candidates.action_claim_ids),
+            "action_selected_claim_ids": [
+                item.claim_id for item in projection.action_items
+            ],
+            "action_exclusions": [],
+            "risk_candidate_count": len(candidates.risk_claim_ids),
+            "risk_selected_claim_ids": [item.claim_id for item in projection.risks],
+            "risk_exclusions": duplicates(projection.risk_duplicates),
+        }
 
     def _supported_text_or_unknown(
         self,
@@ -466,3 +512,6 @@ class EntityBuilder:
 
     def get_field_downgrade_count(self) -> int:
         return self._field_downgrade_count
+
+    def get_decision_summary(self) -> dict:
+        return dict(self._decision_summary)
