@@ -1,0 +1,67 @@
+{
+  "name": "WorkPilot rich_project 结构化实体字段回归",
+  "version": "0.1",
+  "cases": [
+    {
+      "case_id": "rich_project_structured_entity_fields",
+      "workspace": "../tests/fixtures/workspaces/rich_project",
+      "goal": "生成本周项目周报",
+      "expected_status": "passed",
+      "expected_entities_exhaustive": true,
+      "expected_evidence_quotes": [
+        "- PROJ-202: 支付重试逻辑开发 (李四, blocked — 等待 API 设计确认)",
+        "1. 支付重试逻辑的 API 设计仍未确定，李四需要本周给出方案，否则下游开发将被阻塞。",
+        "3. 线上告警频率上升，过去一周 P2 告警增加 40%，赵六初步判断与缓存命中率下降有关。",
+        "- 支付重试方案截止日期定为本周五（6月27日）。",
+        "- 李四：输出支付重试 API 设计文档。",
+        "- 王五：周三启动首页改版开发。",
+        "- 赵六：排查告警上升根因，周四前输出报告。",
+        "- 张三：协调产品侧确认支付重试的业务规则。",
+        "- 如果支付重试 API 设计周五前未完成，整个支付模块迭代将延期一周。",
+        "- 告警持续上升可能影响用户体验，需要尽快定位。"
+      ],
+      "expected_action_items": [
+        {
+          "claim_text": "- 李四：输出支付重试 API 设计文档。",
+          "owner": {"value": "李四"},
+          "due_date_text": {"value": null}
+        },
+        {
+          "claim_text": "- 王五：周三启动首页改版开发。",
+          "owner": {"value": "王五"},
+          "due_date_text": {"value": "周三"}
+        },
+        {
+          "claim_text": "- 赵六：排查告警上升根因，周四前输出报告。",
+          "owner": {"value": "赵六"},
+          "due_date_text": {"value": "周四前"}
+        },
+        {
+          "claim_text": "- 张三：协调产品侧确认支付重试的业务规则。",
+          "owner": {"value": "张三"},
+          "due_date_text": {"value": null}
+        }
+      ],
+      "expected_risks": [
+        {
+          "claim_text": "- PROJ-202: 支付重试逻辑开发 (李四, blocked — 等待 API 设计确认)",
+          "owner": {"value": "李四"},
+          "severity": {"value": null},
+          "mitigation": {"value": null}
+        },
+        {
+          "claim_text": "- 如果支付重试 API 设计周五前未完成，整个支付模块迭代将延期一周。",
+          "owner": {"value": null},
+          "severity": {"value": null},
+          "mitigation": {"value": null}
+        },
+        {
+          "claim_text": "- 告警持续上升可能影响用户体验，需要尽快定位。",
+          "owner": {"value": null},
+          "severity": {"value": null},
+          "mitigation": {"value": "尽快定位"}
+        }
+      ]
+    }
+  ]
+}
