@@ -38,6 +38,9 @@ tests/fixtures/_api_runs/
 node_modules/
 web/dist/
 
+# 本地开发草稿(个人决策语境,不进版本库)
+docs/dev/
+
 # Secrets — never commit real API keys
 .env
 .env.local

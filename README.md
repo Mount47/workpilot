@@ -10,6 +10,12 @@
 pip install -e ".[dev]"
 ```
 
+启用 Web 服务与前端时,额外安装 `web` 可选依赖:
+
+```bash
+pip install -e ".[dev,web]"
+```
+
 ## 快速使用
 
 ```bash
@@ -88,3 +94,29 @@ workpilot run \
 ```bash
 workpilot doctor --route-config ./examples/model_routes.json
 ```
+
+## Web 服务与前端
+
+除 CLI 外,可以通过 HTTP 服务触发运行并在浏览器中查看可追溯报告。
+
+启动后端(默认绑定 127.0.0.1):
+
+```bash
+workpilot serve --workspace-root ./tests/fixtures/workspaces
+```
+
+`--workspace-root` 是唯一允许被分析的目录,其子目录之外的路径会被拒绝。服务当前不带鉴权,仅靠 localhost 绑定与工作区白名单兜底,请勿在未加认证的情况下绑定到 `0.0.0.0` 或公网地址。
+
+启动前端(开发态,另开一个终端):
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+在报告中点击 `[E-xxxx]` 引用标记,即可打开原文并高亮被引用的行——这是本项目"每条结论可追溯到原文证据"的核心交互。
+
+主要端点:`POST /api/runs` 触发运行,`GET /api/runs/{id}` 轮询状态,`GET /api/runs/{id}/report`、`.../artifacts/{artifact}`、`.../source/{source_id}` 读取报告、产物与源文件。
+
+> 说明:Run 注册表当前为内存态,服务重启会丢失历史;前后端为开发态双进程。持久化、鉴权与单进程部署见 [交接与难点](./docs/06-项目状态/04-交接与难点.md)。
