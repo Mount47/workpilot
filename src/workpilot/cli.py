@@ -366,5 +366,55 @@ def _print_preflight_result(result: ProviderPreflightResult) -> None:
         typer.echo(f"  Issue [{issue.code}]: {issue.message}")
 
 
+@app.command()
+def serve(
+    workspace_root: Path = typer.Option(
+        ...,
+        "--workspace-root",
+        help="Whitelist root; only its sub-folders can be analyzed",
+    ),
+    runs_root: Path = typer.Option(
+        Path("./runs/_api"),
+        "--runs-root",
+        help="Directory where per-run artifacts are written",
+    ),
+    host: str = typer.Option("127.0.0.1", help="Bind host (default localhost only)"),
+    port: int = typer.Option(8000, help="Bind port"),
+) -> None:
+    """Launch the WorkPilot Web API.
+
+    Security: this exposes triggering analysis and spending API-key budget.
+    It binds to localhost by default and restricts analysis to sub-folders of
+    --workspace-root. Do not bind to 0.0.0.0 or a public host without adding
+    authentication in front.
+    """
+    if not workspace_root.exists():
+        typer.echo(f"Error: workspace root '{workspace_root}' does not exist.", err=True)
+        raise typer.Exit(1)
+    try:
+        import uvicorn
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        typer.echo(
+            "Error: web extras not installed. Run: pip install -e '.[web]'",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    from workpilot.api import create_app
+
+    if host not in {"127.0.0.1", "localhost"}:
+        typer.echo(
+            f"[WorkPilot] WARNING: binding to '{host}' exposes an unauthenticated "
+            "service that can trigger analysis and spend API budget.",
+            err=True,
+        )
+
+    app_instance = create_app(workspace_root=workspace_root, runs_root=runs_root)
+    typer.echo(f"[WorkPilot] Serving API on http://{host}:{port}")
+    typer.echo(f"  Workspace root: {workspace_root.resolve()}")
+    typer.echo(f"  Docs: http://{host}:{port}/docs")
+    uvicorn.run(app_instance, host=host, port=port)
+
+
 if __name__ == "__main__":
     app()

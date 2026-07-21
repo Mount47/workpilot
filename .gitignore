@@ -32,6 +32,11 @@ Thumbs.db
 # Project
 runs/
 /tmp/
+tests/fixtures/_api_runs/
+
+# Node / web frontend
+node_modules/
+web/dist/
 
 # Secrets — never commit real API keys
 .env
