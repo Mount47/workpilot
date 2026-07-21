@@ -27,4 +27,4 @@ class EvidenceStore:
 
     def export(self) -> list[dict]:
         """Export all evidence as list of dicts (for serialization)."""
-        return [ev.model_dump() for ev in self._records.values()]
+        return [ev.model_dump(mode="json") for ev in self._records.values()]

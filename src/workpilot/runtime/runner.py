@@ -619,8 +619,16 @@ class Runtime:
                     "verification_report.json",
                     execution_context["verification_report"],
                 )
+                # Persist the evidence store so downstream consumers (Web UI,
+                # audits) can resolve each E-xxxx reference back to its source
+                # file, line range and quoted text. In-memory only until now.
+                self.writer.write_json(
+                    "evidence.json",
+                    self.evidence_store.export(),
+                )
                 self.memory.record_artifacts(
-                    list(artifacts.keys()) + ["verification_report.json"]
+                    list(artifacts.keys())
+                    + ["verification_report.json", "evidence.json"]
                 )
 
         self._bind_runtime_handler(
