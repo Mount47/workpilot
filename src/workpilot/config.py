@@ -5,7 +5,7 @@ Keeping every secret and run default in one typed object means the rest of the
 code never reaches into os.environ directly — there is a single source of truth.
 """
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,9 +36,21 @@ class Settings(BaseSettings):
     workpilot_provider: str = Field(default="stub")
     workpilot_model: str = Field(default="")
     workpilot_base_url: str = Field(default="")
+    workpilot_database_url: SecretStr = Field(default=SecretStr(""))
+    workpilot_lease_ttl_seconds: int = Field(default=30, ge=1)
+    workpilot_heartbeat_seconds: int = Field(default=10, ge=1)
     max_steps: int = Field(default=30, ge=1)
     time_budget_seconds: int = Field(default=300, ge=1)
     token_budget: int = Field(default=100_000, ge=1)
+
+    @model_validator(mode="after")
+    def validate_lease_timing(self) -> "Settings":
+        if self.workpilot_heartbeat_seconds * 3 > self.workpilot_lease_ttl_seconds:
+            raise ValueError(
+                "WORKPILOT_HEARTBEAT_SECONDS must not exceed one third of "
+                "WORKPILOT_LEASE_TTL_SECONDS"
+            )
+        return self
 
     def api_key_for(self, provider: str) -> str:
         """Return the configured API key for a provider name (empty if unset)."""

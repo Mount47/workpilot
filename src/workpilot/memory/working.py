@@ -198,6 +198,33 @@ class WorkingMemory:
         if error_type:
             self._last_error_type = error_type
 
+    def restore_checkpoint_state(
+        self,
+        *,
+        plan: Plan,
+        project_snapshot: ProjectSnapshot | None,
+        verification_results: list[VerifyResult],
+        revision_attempt: int,
+        revision_feedback: list[str],
+        artifact_names: list[str],
+        budget: dict[str, Any],
+    ) -> None:
+        """Restore only fields covered by the versioned checkpoint contract."""
+        if plan.goal != self.goal:
+            raise ValueError("checkpoint Plan goal does not match Working Memory")
+        if revision_attempt < 1:
+            raise ValueError("revision_attempt must be at least 1")
+        self._plan = plan
+        self._project_snapshot = project_snapshot
+        self.record_verification(verification_results)
+        self._revision_count = revision_attempt - 1
+        self._revision_feedback = (
+            revision_feedback[-1] if revision_feedback else None
+        )
+        self._artifact_names = set(artifact_names)
+        self._budget = deepcopy(budget)
+        self.run_status = "running"
+
     def export(self) -> WorkingMemorySnapshot:
         evidence_ids = [
             evidence.evidence_id for evidence in self.evidence_store.list_all()

@@ -41,6 +41,40 @@ class ExecutionBudget:
         if self._started_at is None:
             self._started_at = self._clock()
 
+    @classmethod
+    def restore(
+        cls,
+        *,
+        max_steps: int,
+        token_budget: int,
+        time_budget_seconds: int,
+        step_count: int,
+        input_tokens: int,
+        output_tokens: int,
+        elapsed_seconds: float,
+        clock: Callable[[], float] = monotonic,
+    ) -> "ExecutionBudget":
+        """Recreate counters while starting a fresh monotonic process clock."""
+        if not 0 <= step_count <= max_steps:
+            raise ValueError("restored step_count is outside the budget")
+        if input_tokens < 0 or output_tokens < 0:
+            raise ValueError("restored token counts must not be negative")
+        if input_tokens + output_tokens > token_budget:
+            raise ValueError("restored token usage is outside the budget")
+        if elapsed_seconds < 0 or elapsed_seconds > time_budget_seconds:
+            raise ValueError("restored elapsed time is outside the budget")
+        budget = cls(
+            max_steps=max_steps,
+            token_budget=token_budget,
+            time_budget_seconds=time_budget_seconds,
+            clock=clock,
+        )
+        budget.step_count = step_count
+        budget.input_tokens = input_tokens
+        budget.output_tokens = output_tokens
+        budget._started_at = clock() - elapsed_seconds
+        return budget
+
     def consume_step(self, step_name: str) -> int:
         """Reserve one logical execution step and return its sequence."""
         del step_name  # Names are recorded by Trace; budget tracks the count.

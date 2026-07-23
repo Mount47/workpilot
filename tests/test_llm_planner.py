@@ -324,9 +324,9 @@ def test_runtime_uses_planning_route_and_records_planner_trace(
     result = runtime.execute()
 
     assert result.state.value == "passed"
-    plan = json.loads((output / "plan.json").read_text())
+    plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
     assert plan["created_by"] == "llm"
-    trace = json.loads((output / "trace.json").read_text())
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
     decision = next(
         event for event in trace["events"]
         if event["event_type"] == "planner_decision"

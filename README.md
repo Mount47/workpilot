@@ -10,10 +10,10 @@
 pip install -e ".[dev]"
 ```
 
-启用 Web 服务与前端时,额外安装 `web` 可选依赖:
+启用持久化 Web 服务时，安装 Web 与 PostgreSQL 可选依赖：
 
 ```bash
-pip install -e ".[dev,web]"
+pip install -e ".[dev,web,database]"
 ```
 
 ## 快速使用
@@ -99,10 +99,24 @@ workpilot doctor --route-config ./examples/model_routes.json
 
 除 CLI 外,可以通过 HTTP 服务触发运行并在浏览器中查看可追溯报告。
 
-启动后端(默认绑定 127.0.0.1):
+持久化服务需要先在 `.env` 配置 `WORKPILOT_DATABASE_URL`，再显式执行数据库迁移：
+
+```bash
+alembic upgrade head
+```
+
+启动后端（默认绑定 127.0.0.1）：
 
 ```bash
 workpilot serve --workspace-root ./tests/fixtures/workspaces
+```
+
+只有本地临时开发允许显式使用内存 Repository；该模式重启会丢失 Run 历史：
+
+```bash
+workpilot serve \
+  --workspace-root ./tests/fixtures/workspaces \
+  --in-memory-runs
 ```
 
 `--workspace-root` 是唯一允许被分析的目录,其子目录之外的路径会被拒绝。服务当前不带鉴权,仅靠 localhost 绑定与工作区白名单兜底,请勿在未加认证的情况下绑定到 `0.0.0.0` 或公网地址。
@@ -119,4 +133,4 @@ npm run dev
 
 主要端点:`POST /api/runs` 触发运行,`GET /api/runs/{id}` 轮询状态,`GET /api/runs/{id}/report`、`.../artifacts/{artifact}`、`.../source/{source_id}` 读取报告、产物与源文件。
 
-> 说明:Run 注册表当前为内存态,服务重启会丢失历史;前后端为开发态双进程。持久化、鉴权与单进程部署见 [交接与难点](./docs/06-项目状态/04-交接与难点.md)。
+> 说明：配置 PostgreSQL 后，Run、PlanStep、ToolCall、Artifact Metadata 和 Checkpoint Metadata 由 Repository 持久化；`Idempotency-Key` 可防止同一 API 请求重复创建 Run。Runtime 会在每个已提交步骤后原子写入版本化 Checkpoint，并通过数据库时间租约、单调 `execution_attempt` fencing 和 Heartbeat 阻止旧 Worker 写入。内部 Restorer 已能校验并重建执行状态，但启动恢复扫描、公开恢复入口、Provider 调用去重、鉴权和可靠任务队列仍未实现，因此不能直接作为公网高可用服务。详见 [下一阶段改进路线图](./docs/02-项目开发计划/09-下一阶段改进路线图.md)。

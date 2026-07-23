@@ -10,6 +10,22 @@ class EvidenceStore:
         self.run_id = run_id
         self._records: dict[str, Evidence] = {}
 
+    @classmethod
+    def from_records(
+        cls,
+        run_id: str,
+        records: list[Evidence],
+    ) -> "EvidenceStore":
+        """Rebuild a store from already schema-validated checkpoint records."""
+        store = cls(run_id)
+        for evidence in records:
+            if evidence.evidence_id in store._records:
+                raise ValueError(
+                    f"duplicate Evidence ID in checkpoint: {evidence.evidence_id}"
+                )
+            store.insert(evidence.model_copy(deep=True))
+        return store
+
     def insert(self, evidence: Evidence) -> None:
         """Insert an evidence record. Overwrites if same ID exists."""
         self._records[evidence.evidence_id] = evidence

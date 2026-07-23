@@ -40,6 +40,31 @@ class RepairingStubProvider(StubProvider):
         return super().extract_evidence_from_file(file_path, content, goal)
 
 
+def test_runtime_uses_external_run_id_across_artifacts(
+    basic_workspace: Path,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "external-identity"
+    runtime = Runtime(
+        workspace_root=basic_workspace,
+        goal="生成本周项目周报",
+        output_dir=output,
+        provider=get_provider("stub"),
+        run_id="run_external",
+    )
+
+    result = runtime.execute()
+
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
+    context = json.loads(
+        (output / "run_context.json").read_text(encoding="utf-8")
+    )
+    assert result.run_id == "run_external"
+    assert runtime.contract.run_id == "run_external"
+    assert trace["run_id"] == "run_external"
+    assert context["run_id"] == "run_external"
+
+
 def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     """Full pipeline with stub provider produces all expected artifacts."""
     provider = get_provider("stub")
@@ -73,7 +98,7 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
         assert path.stat().st_size > 0, f"Empty artifact: {f}"
 
     # trace.json should have events
-    trace = json.loads((tmp_output / "trace.json").read_text())
+    trace = json.loads((tmp_output / "trace.json").read_text(encoding="utf-8"))
     assert trace["event_count"] >= 4
     assert trace["run_id"] == result.run_id
     assert all("event_id" in event for event in trace["events"])
@@ -110,17 +135,19 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     )
 
     # weekly_report.md should contain evidence references
-    report = (tmp_output / "weekly_report.md").read_text()
+    report = (tmp_output / "weekly_report.md").read_text(encoding="utf-8")
     assert "[E-" in report
 
     # risks.json should be valid
-    risks = json.loads((tmp_output / "risks.json").read_text())
+    risks = json.loads((tmp_output / "risks.json").read_text(encoding="utf-8"))
     assert risks["schema_version"] == "0.3"
     assert len(risks["risks"]) >= 1
     assert "field_evidence" in risks["risks"][0]
 
     # action_items.json should be valid
-    actions = json.loads((tmp_output / "action_items.json").read_text())
+    actions = json.loads(
+        (tmp_output / "action_items.json").read_text(encoding="utf-8")
+    )
     assert actions["schema_version"] == "0.3"
     assert len(actions["action_items"]) >= 1
     assert "source_refs" in actions["action_items"][0]
@@ -128,13 +155,15 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert "field_evidence" in actions["action_items"][0]
 
     # project_snapshot.json is the structured source of all artifacts
-    snapshot = json.loads((tmp_output / "project_snapshot.json").read_text())
+    snapshot = json.loads(
+        (tmp_output / "project_snapshot.json").read_text(encoding="utf-8")
+    )
     assert len(snapshot["claims"]) > 0
     assert all("claim_id" in claim for claim in snapshot["claims"])
 
     # Runtime verifies both claims and rendered citations
     verification = json.loads(
-        (tmp_output / "verification_report.json").read_text()
+        (tmp_output / "verification_report.json").read_text(encoding="utf-8")
     )
     check_ids = {check["check_id"] for check in verification["checks"]}
     assert "claim.supported" in check_ids
@@ -150,7 +179,9 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
     assert quality_events[0]["data"]["passed"] is True
 
     # Working Memory exports only safe IDs, state and resource summaries.
-    context = json.loads((tmp_output / "run_context.json").read_text())
+    context = json.loads(
+        (tmp_output / "run_context.json").read_text(encoding="utf-8")
+    )
     assert context["run_status"] == "passed"
     assert context["evidence_count"] > 0
     assert len(context["claim_ids"]) > 0
@@ -163,7 +194,7 @@ def test_smoke_run(basic_workspace: Path, tmp_output: Path) -> None:
         for step in context["plan"]["steps"]
     )
 
-    plan = json.loads((tmp_output / "plan.json").read_text())
+    plan = json.loads((tmp_output / "plan.json").read_text(encoding="utf-8"))
     assert plan["validated"] is True
     assert len(plan["steps"]) == 6
     assert all(step["attempts"] == 1 for step in plan["steps"])
@@ -186,7 +217,7 @@ def test_runtime_repairs_invalid_evidence_before_synthesis(
 
     assert result.state.value == "passed"
     assert set(provider.attempts.values()) == {2}
-    trace = json.loads((output / "trace.json").read_text())
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
     quality_events = [
         event
         for event in trace["events"]

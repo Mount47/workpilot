@@ -304,7 +304,7 @@ def test_runtime_uses_routes_and_records_versioned_model_trace(
     result = runtime.execute()
 
     assert result.state.value == "passed"
-    trace = json.loads((output / "trace.json").read_text())
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
     route_events = [
         event for event in trace["events"]
         if event["event_type"] == "model_route_selected"

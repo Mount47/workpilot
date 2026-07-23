@@ -98,10 +98,10 @@ def test_runtime_rejects_plan_when_step_budget_is_too_small(
 
     assert result.state.value == "failed"
     assert "plan requires at least 7 runtime steps" in (result.failure_reason or "")
-    trace = json.loads((output / "trace.json").read_text())
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
     assert trace["events"][-1]["event_type"] == "budget_summary"
     assert trace["events"][-1]["data"]["steps"]["used"] == 1
-    context = json.loads((output / "run_context.json").read_text())
+    context = json.loads((output / "run_context.json").read_text(encoding="utf-8"))
     assert context["run_status"] == "failed"
     assert context["last_error_type"] == "PlanValidationError"
     assert context["plan"]["validated"] is False
@@ -124,7 +124,7 @@ def test_runtime_token_budget_records_call_before_failure(
 
     assert result.state.value == "failed"
     assert "token budget exceeded" in (result.failure_reason or "")
-    trace = json.loads((output / "trace.json").read_text())
+    trace = json.loads((output / "trace.json").read_text(encoding="utf-8"))
     event_types = [event["event_type"] for event in trace["events"]]
     assert "model_call_completed" in event_types
     assert "tool_call_failed" in event_types
@@ -141,7 +141,7 @@ def test_runtime_token_budget_records_call_before_failure(
         if event["event_type"] == "budget_summary"
     )
     assert summary["tokens"]["used"] == 11
-    context = json.loads((output / "run_context.json").read_text())
+    context = json.loads((output / "run_context.json").read_text(encoding="utf-8"))
     assert context["run_status"] == "failed"
     assert context["budget"]["tokens"]["used"] == 11
     failed_steps = [step for step in context["steps"] if step["status"] == "failed"]

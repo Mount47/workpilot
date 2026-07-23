@@ -11,6 +11,7 @@ from workpilot.planning.tools import ToolResult
 
 SchedulerEventHandler = Callable[[str, dict[str, Any]], None]
 SchedulerStepExecutor = Callable[[str], ToolResult]
+FatalErrorPredicate = Callable[[Exception], bool]
 
 
 class SchedulerDeadlockError(RuntimeError):
@@ -49,6 +50,17 @@ class StepResultStore:
 
     def has(self, step_id: str) -> bool:
         return step_id in self._results
+
+    def checkpoint_items(self) -> tuple[tuple[str, ToolResult], ...]:
+        """Return a stable, read-only view for the restricted checkpoint codec."""
+        return tuple(sorted(self._results.items()))
+
+    def restore(self, results: dict[str, ToolResult]) -> None:
+        """Restore already decoded results without bypassing duplicate checks."""
+        for step_id, result in sorted(results.items()):
+            if not isinstance(result, ToolResult):
+                raise TypeError("restored step results must be ToolResult instances")
+            self.put(step_id, result)
 
     def safe_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return summaries suitable for Trace; raw output stays excluded."""
@@ -99,12 +111,14 @@ class SerialDAGScheduler:
         result_store: StepResultStore | None = None,
         on_event: SchedulerEventHandler | None = None,
         execute_step: SchedulerStepExecutor | None = None,
+        is_fatal_error: FatalErrorPredicate | None = None,
     ) -> None:
         self.executor = executor
         self.plan = executor.plan
         self.result_store = result_store or StepResultStore()
         self.on_event = on_event
         self.execute_step = execute_step or executor.execute_registered_step
+        self.is_fatal_error = is_fatal_error or (lambda _: False)
         self._failure_causes: dict[str, Exception] = {}
 
     def ready_steps(self) -> list[PlanStep]:
@@ -163,6 +177,13 @@ class SerialDAGScheduler:
                     try:
                         result = self.execute_step(step.step_id)
                     except Exception as exc:
+                        if self.is_fatal_error(exc):
+                            self._emit(
+                                "scheduler_aborted",
+                                step_id=step.step_id,
+                                error_type=type(exc).__name__,
+                            )
+                            raise
                         self._failure_causes[step.step_id] = exc
                         self._emit(
                             "scheduler_step_failed",

@@ -312,7 +312,7 @@ def test_runtime_revision_reenters_only_reentrant_plan_steps(
     result = runtime.execute()
 
     assert result.state.value == "passed"
-    plan = json.loads((output / "plan.json").read_text())
+    plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
     attempts = {step["step_id"]: step["attempts"] for step in plan["steps"]}
     assert attempts["scan_workspace"] == 1
     assert attempts["extract_evidence"] == 1
@@ -320,7 +320,7 @@ def test_runtime_revision_reenters_only_reentrant_plan_steps(
     assert attempts["render_artifacts"] == 2
     assert attempts["verify"] == 2
     assert attempts["finalize"] == 1
-    context = json.loads((output / "run_context.json").read_text())
+    context = json.loads((output / "run_context.json").read_text(encoding="utf-8"))
     assert context["revision_count"] == 1
 
 

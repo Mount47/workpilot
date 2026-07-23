@@ -45,6 +45,22 @@ from workpilot.providers.routing import (
 )
 from workpilot.runtime import Run, RunState
 from workpilot.runtime.budget import ExecutionBudget
+from workpilot.runtime.checkpoint import (
+    BudgetCheckpoint,
+    CheckpointCodecRegistry,
+    CheckpointPayload,
+    RuntimeStateCheckpoint,
+    VerifyResultCheckpoint,
+)
+from workpilot.persistence.repository import RunRepositoryError
+from workpilot.runtime.checkpoint_store import CheckpointFileRecord, CheckpointStore
+from workpilot.runtime.observer import (
+    ExecutionGuard,
+    ExecutionObserver,
+    NullExecutionGuard,
+    NullExecutionObserver,
+    build_tool_call_context,
+)
 from workpilot.synthesis.synthesizer import Synthesizer
 from workpilot.trace.journal import TraceJournal
 from workpilot.verification.citation_verifier import CitationVerifier
@@ -71,8 +87,15 @@ class Runtime:
         time_budget_seconds: int = 300,
         token_budget: int = 100_000,
         enable_entity_projection: bool = False,
+        *,
+        run_id: str | None = None,
+        execution_observer: ExecutionObserver | None = None,
+        execution_guard: ExecutionGuard | None = None,
+        checkpoint_store: CheckpointStore | None = None,
     ) -> None:
-        self.run_id = f"run_{uuid.uuid4().hex[:8]}"
+        if run_id is not None and not run_id.strip():
+            raise ValueError("run_id must not be blank")
+        self.run_id = run_id or f"run_{uuid.uuid4().hex[:8]}"
         self.run = Run(
             run_id=self.run_id,
             goal=goal,
@@ -97,13 +120,19 @@ class Runtime:
         # Compatibility alias while modules migrate to RunContext reads.
         self.evidence_store = self.memory.evidence_store
         self.trace = TraceJournal(run_id=self.run_id)
+        self.execution_observer = execution_observer or NullExecutionObserver()
+        self.execution_guard = execution_guard or NullExecutionGuard()
+        self.checkpoint_store = checkpoint_store
         self._active_step_id: str | None = None
         self.workspace = WorkspaceTools(workspace_root=self.contract.workspace_root)
         self.tool_registry = create_default_registry()
         self.planner = DeterministicPlanner()
         self.plan_validator = PlanValidator(self.tool_registry)
         self.plan: Plan | None = None
-        self.writer = ArtifactWriter(output_dir=output_dir)
+        self.writer = ArtifactWriter(
+            output_dir=output_dir,
+            on_write=self.execution_observer.artifact_recorded,
+        )
         self.project_snapshot: ProjectSnapshot | None = None
         self._latest_verification_results: list = []
         self.budget = ExecutionBudget(
@@ -237,6 +266,15 @@ class Runtime:
                 self.contract,
                 reserved_runtime_steps=1,
             )
+            tool_versions: dict[str, str] = {}
+            for plan_step in self.plan.steps:
+                spec = self.tool_registry.get(plan_step.tool)
+                if spec is None:
+                    raise ValueError(
+                        f"Validated tool {plan_step.tool} is no longer registered"
+                    )
+                tool_versions[plan_step.tool] = spec.version
+            self.execution_observer.plan_registered(self.plan, tool_versions)
             self.trace.append(
                 event_type="plan_validated",
                 data={"plan_id": self.plan.plan_id, "status": "passed"},
@@ -643,8 +681,11 @@ class Runtime:
             execute_step=lambda step_id: self._execute_plan_step_result(
                 plan_executor,
                 step_id,
+                result_store=result_store,
+                execution_context=execution_context,
             ),
             on_event=self._record_scheduler_event,
+            is_fatal_error=lambda exc: isinstance(exc, RunRepositoryError),
         )
         initial_result = scheduler.run(stop_before_step_ids={"finalize"})
         if initial_result.failed_step_ids or initial_result.blocked_step_ids:
@@ -673,6 +714,8 @@ class Runtime:
                     plan_executor,
                     step_id,
                     allow_reentry=True,
+                    result_store=result_store,
+                    execution_context=execution_context,
                 )
                 result_store.put(step_id, result, allow_overwrite=True)
             verify_results, errors = result_store.get("verify").output
@@ -728,9 +771,22 @@ class Runtime:
         step_id: str,
         *,
         allow_reentry: bool = False,
+        result_store: StepResultStore | None = None,
+        execution_context: dict[str, Any] | None = None,
     ) -> ToolResult:
+        self.execution_guard.assert_execution_allowed()
         step = executor.plan.get_step(step_id)
         next_attempt = step.attempts + 1
+        spec = self.tool_registry.get(step.tool)
+        if spec is None:
+            raise ValueError(f"Tool {step.tool} is no longer registered")
+        call_context = build_tool_call_context(
+            run_id=self.run_id,
+            plan_id=executor.plan.plan_id,
+            step=step,
+            execution_no=next_attempt,
+            tool_version=spec.version,
+        )
         self.trace.append(
             event_type="plan_step_started",
             data={
@@ -738,10 +794,10 @@ class Runtime:
                 "plan_step_id": step_id,
                 "tool": step.tool,
                 "attempt": next_attempt,
+                "tool_call_id": call_context.tool_call_id,
             },
             parent_step_id="run",
         )
-        spec = self.tool_registry.get(step.tool)
         tool_started = monotonic()
         self.trace.append(
             event_type="tool_call_started",
@@ -751,9 +807,11 @@ class Runtime:
                 "tool_version": spec.version if spec is not None else None,
                 "input_fields": sorted(step.inputs),
                 "attempt": next_attempt,
+                "tool_call_id": call_context.tool_call_id,
             },
             parent_step_id="run",
         )
+        self.execution_observer.tool_call_started(call_context)
         try:
             result = executor.execute_registered_step(
                 step_id,
@@ -773,6 +831,7 @@ class Runtime:
                     "tool": step.tool,
                     "tool_version": spec.version if spec is not None else None,
                     "attempt": step.attempts,
+                    "tool_call_id": call_context.tool_call_id,
                     "latency_ms": round((monotonic() - tool_started) * 1000, 3),
                     "error_type": error_type,
                     "success_evaluation": success_evaluation,
@@ -786,9 +845,50 @@ class Runtime:
                     "plan_step_id": step_id,
                     "tool": step.tool,
                     "attempt": step.attempts,
+                    "tool_call_id": call_context.tool_call_id,
                     "error_type": error_type,
                     "error": str(exc),
                     "success_evaluation": success_evaluation,
+                },
+                parent_step_id="run",
+            )
+            self.execution_observer.tool_call_failed(
+                call_context,
+                error_type=error_type,
+                success_evaluation=success_evaluation,
+            )
+            raise
+        self.execution_guard.assert_execution_allowed()
+        success_evaluation = (
+            step.success_evaluation.model_dump(mode="json")
+            if step.success_evaluation is not None
+            else None
+        )
+        try:
+            self.execution_guard.assert_execution_allowed()
+            checkpoint = self._write_step_checkpoint(
+                step_id=step_id,
+                result=result,
+                result_store=result_store,
+                execution_context=execution_context,
+            )
+            self.execution_observer.tool_call_completed(
+                call_context,
+                output_summary=result.output_summary,
+                evidence_ids=tuple(result.evidence_ids),
+                success_evaluation=success_evaluation,
+                checkpoint=checkpoint,
+            )
+        except Exception as exc:
+            error_type = self._error_type(exc)
+            step.status = "failed"
+            step.last_error_type = error_type
+            self.trace.append(
+                event_type="checkpoint_commit_failed",
+                data={
+                    "plan_step_id": step_id,
+                    "tool_call_id": call_context.tool_call_id,
+                    "error_type": error_type,
                 },
                 parent_step_id="run",
             )
@@ -800,13 +900,12 @@ class Runtime:
                 "tool": step.tool,
                 "tool_version": spec.version if spec is not None else None,
                 "attempt": step.attempts,
+                "tool_call_id": call_context.tool_call_id,
                 "latency_ms": round((monotonic() - tool_started) * 1000, 3),
                 "output_summary": result.output_summary,
                 "evidence_ids": result.evidence_ids,
                 "success_evaluation": (
-                    step.success_evaluation.model_dump(mode="json")
-                    if step.success_evaluation is not None
-                    else None
+                    success_evaluation
                 ),
             },
             parent_step_id="run",
@@ -818,15 +917,104 @@ class Runtime:
                 "plan_step_id": step_id,
                 "tool": step.tool,
                 "attempt": step.attempts,
+                "tool_call_id": call_context.tool_call_id,
                 "success_evaluation": (
-                    step.success_evaluation.model_dump(mode="json")
-                    if step.success_evaluation is not None
-                    else None
+                    success_evaluation
                 ),
             },
             parent_step_id="run",
         )
         return result
+
+    def _write_step_checkpoint(
+        self,
+        *,
+        step_id: str,
+        result: ToolResult,
+        result_store: StepResultStore | None,
+        execution_context: dict[str, Any] | None,
+    ) -> CheckpointFileRecord | None:
+        sequence = self.execution_observer.next_checkpoint_sequence()
+        if sequence is None:
+            return None
+        if self.plan is None or result_store is None or execution_context is None:
+            raise RuntimeError("checkpoint state is unavailable")
+
+        candidate_results = dict(result_store.checkpoint_items())
+        candidate_results[step_id] = result
+        codec_registry = CheckpointCodecRegistry()
+        encoded_results = {
+            candidate_step_id: codec_registry.encode(
+                self.plan.get_step(candidate_step_id).tool,
+                candidate_result,
+                tool_version=self.tool_registry.get(
+                    self.plan.get_step(candidate_step_id).tool
+                ).version,
+            )
+            for candidate_step_id, candidate_result in sorted(
+                candidate_results.items()
+            )
+        }
+        rendered_result = candidate_results.get("render_artifacts")
+        rendered_artifacts = (
+            dict(rendered_result.output) if rendered_result is not None else {}
+        )
+        verification_result = candidate_results.get("verify")
+        if verification_result is None:
+            verification_results = list(self._latest_verification_results)
+            verification_errors = [
+                item
+                for item in verification_results
+                if item.status == "failed" and item.severity == "error"
+            ]
+        else:
+            verification_results, verification_errors = verification_result.output
+        budget = self.budget.snapshot()
+        payload = CheckpointPayload(
+            run_id=self.run_id,
+            sequence=sequence,
+            committed_step_id=step_id,
+            plan=self.plan.model_copy(deep=True),
+            step_results=encoded_results,
+            evidence=[
+                evidence.model_copy(deep=True)
+                for evidence in self.evidence_store.list_all()
+            ],
+            runtime_state=RuntimeStateCheckpoint(
+                project_snapshot=(
+                    self.project_snapshot.model_copy(deep=True)
+                    if self.project_snapshot is not None
+                    else None
+                ),
+                rendered_artifacts=rendered_artifacts,
+                verification_results=[
+                    VerifyResultCheckpoint.from_runtime(item)
+                    for item in verification_results
+                ],
+                verification_errors=[
+                    VerifyResultCheckpoint.from_runtime(item)
+                    for item in verification_errors
+                ],
+                revision_attempt=int(execution_context.get("attempt", 1)),
+                revision_feedback=(
+                    [self.memory.revision_feedback]
+                    if self.memory.revision_feedback is not None
+                    else []
+                ),
+                budget=BudgetCheckpoint(
+                    steps_used=budget["steps"]["used"],
+                    steps_limit=budget["steps"]["limit"],
+                    input_tokens=budget["tokens"]["input"],
+                    output_tokens=budget["tokens"]["output"],
+                    token_limit=budget["tokens"]["limit"],
+                    elapsed_seconds=budget["time"]["elapsed_seconds"],
+                    time_limit_seconds=budget["time"]["limit_seconds"],
+                ),
+            ),
+        )
+        store = self.checkpoint_store or CheckpointStore(self.output_dir)
+        self.checkpoint_store = store
+        return store.write(payload)
 
     def _record_scheduler_event(
         self,
@@ -838,6 +1026,7 @@ class Runtime:
             data=data,
             parent_step_id="run",
         )
+        self.execution_observer.scheduler_event(event_type, data)
 
     def _bind_runtime_handler(
         self,

@@ -380,6 +380,11 @@ def serve(
     ),
     host: str = typer.Option("127.0.0.1", help="Bind host (default localhost only)"),
     port: int = typer.Option(8000, help="Bind port"),
+    in_memory_runs: bool = typer.Option(
+        False,
+        "--in-memory-runs",
+        help="Explicit development fallback; run history is lost on restart",
+    ),
 ) -> None:
     """Launch the WorkPilot Web API.
 
@@ -401,6 +406,50 @@ def serve(
         raise typer.Exit(1) from exc
 
     from workpilot.api import create_app
+    from workpilot.persistence import InMemoryRunRepository, RunRepositoryError
+
+    settings = Settings()
+    configured_database_url = settings.workpilot_database_url.get_secret_value()
+    if configured_database_url and in_memory_runs:
+        typer.echo(
+            "Error: choose either WORKPILOT_DATABASE_URL or --in-memory-runs, "
+            "not both.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if configured_database_url:
+        try:
+            from workpilot.persistence.sqlalchemy_repository import (
+                SQLAlchemyRunRepository,
+            )
+        except ImportError as exc:
+            typer.echo(
+                "Error: database extras not installed. "
+                "Run: pip install -e '.[web,database]'",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
+        repository = SQLAlchemyRunRepository.from_url(configured_database_url)
+        try:
+            repository.list(limit=1)
+        except RunRepositoryError as exc:
+            repository.close()
+            typer.echo(
+                "Error: run repository unavailable or not migrated. "
+                "Set WORKPILOT_DATABASE_URL and run: alembic upgrade head",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
+    elif in_memory_runs:
+        repository = InMemoryRunRepository()
+    else:
+        typer.echo(
+            "Error: persistent run storage is required. Configure "
+            "WORKPILOT_DATABASE_URL, or explicitly use "
+            "--in-memory-runs for development.",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     if host not in {"127.0.0.1", "localhost"}:
         typer.echo(
@@ -409,9 +458,19 @@ def serve(
             err=True,
         )
 
-    app_instance = create_app(workspace_root=workspace_root, runs_root=runs_root)
+    app_instance = create_app(
+        workspace_root=workspace_root,
+        runs_root=runs_root,
+        run_repository=repository,
+        lease_ttl_seconds=settings.workpilot_lease_ttl_seconds,
+        heartbeat_seconds=settings.workpilot_heartbeat_seconds,
+    )
     typer.echo(f"[WorkPilot] Serving API on http://{host}:{port}")
     typer.echo(f"  Workspace root: {workspace_root.resolve()}")
+    typer.echo(
+        "  Run repository: "
+        + ("PostgreSQL" if configured_database_url else "in-memory (development)")
+    )
     typer.echo(f"  Docs: http://{host}:{port}/docs")
     uvicorn.run(app_instance, host=host, port=port)
 
